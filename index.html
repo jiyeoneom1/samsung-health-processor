@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Samsung Health 데이터 처리기</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏥 Samsung Health 데이터 처리기</h1>
+            <p>Samsung Health ZIP 파일에서 심박수, 스트레스, 걸음수, 수면 데이터를 쉽게 추출하고 분석하세요</p>
+        </header>
+        
+        <div class="upload-modes">
+            <div class="upload-mode" onclick="setSingleMode()">
+                <div class="icon">📁</div>
+                <h3>단일 ZIP 파일</h3>
+                <p>하나의 ZIP 파일을 업로드하여 처리</p>
+            </div>
+            
+            <div class="upload-mode" onclick="setMultiMode()">
+                <div class="icon">📦</div>
+                <h3>다중 ZIP 파일</h3>
+                <p>여러 ZIP 파일을 한번에 처리하여 병합</p>
+            </div>
+            
+            <div class="upload-mode" onclick="setNestedMode()">
+                <div class="icon">🎁</div>
+                <h3>중첩 ZIP 파일</h3>
+                <p>ZIP 안에 여러 ZIP이 들어있는 파일 처리</p>
+            </div>
+        </div>
+        
+        <div id="singleMode" style="display: none;">
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📁</div>
+                <h3>ZIP 파일을 여기에 드래그하거나 클릭하여 업로드</h3>
+                <p>Samsung Health ZIP 파일에서 데이터를 추출합니다</p>
+            </div>
+            <input type="file" id="fileInput" accept=".zip" style="display: none;" />
+        </div>
+        
+        <div id="multiMode" style="display: none;">
+            <div class="upload-area" onclick="document.getElementById('multiFileInput').click()">
+                <div class="upload-icon">📦</div>
+                <h3>여러 ZIP 파일을 선택하세요</h3>
+                <p>Ctrl(또는 Cmd) + 클릭으로 여러 파일 선택 가능</p>
+            </div>
+            <input type="file" id="multiFileInput" accept=".zip" multiple style="display: none;" />
+            
+            <div id="selectedFiles" style="display: none;">
+                <h4>선택된 파일들:</h4>
+                <div class="file-list" id="fileList"></div>
+                <div class="button-group">
+                    <button class="btn primary" onclick="processMultipleFiles()">📊 모든 파일 처리하기</button>
+                    <button class="btn danger" onclick="clearFiles()">🗑️ 파일 목록 초기화</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="nestedMode" style="display: none;">
+            <div class="upload-area" onclick="document.getElementById('nestedFileInput').click()">
+                <div class="upload-icon">🎁</div>
+                <h3>중첩 ZIP 파일을 업로드하세요</h3>
+                <p>예: Team2 (3).zip 같이 내부에 여러 ZIP 파일이 들어있는 경우</p>
+            </div>
+            <input type="file" id="nestedFileInput" accept=".zip" style="display: none;" />
+            
+            <div id="nestedFileStructure" style="display: none;">
+                <h4>발견된 내부 ZIP 파일들:</h4>
+                <div class="file-list" id="nestedFileList"></div>
+                <div class="button-group">
+                    <button class="btn primary" onclick="processNestedFiles()">📊 모든 내부 파일 처리하기</button>
+                    <button class="btn danger" onclick="clearNestedFiles()">🗑️ 다시 선택</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="processing-mode" id="processingMode" style="display: none;">
+            <h4>🔄 처리 모드</h4>
+            <div class="radio-group">
+                <label><input type="radio" name="mergeMode" value="separate" checked> 파일별로 분리하여 저장</label>
+                <label><input type="radio" name="mergeMode" value="merge"> 데이터 타입별로 병합 (4개 CSV)</label>
+                <label><input type="radio" name="mergeMode" value="unified"> 모든 데이터를 하나의 통합 CSV로 병합</label>
+                <label><input type="radio" name="mergeMode" value="both"> 분리본과 병합본 모두 제공</label>
+            </div>
+        </div>
+        
+        <div class="progress-container" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div id="progressText">처리 중...</div>
+        </div>
+        
+        <div id="status"></div>
+        
+        <div class="results" id="results" style="display: none;">
+            <h2>📊 처리 결과</h2>
+            <div id="fileResults"></div>
+            <div class="download-section" id="downloadSection" style="display: none;">
+                <h3>💾 일괄 다운로드</h3>
+                <div id="bulkDownload"></div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Made with ❤️ for Samsung Health data analysis</p>
+            <p><small>이 도구는 삼성 헬스 데이터를 로컬에서 처리하며, 데이터가 외부로 전송되지 않습니다.</small></p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
