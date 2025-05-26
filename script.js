@@ -181,20 +181,28 @@ async function handleSingleFile(file) {
 
     try {
         const fileId = getFileIdentifier(file.name);
-        const data = await processZipFile(file, fileId);
+        
+        updateProgress(30, '원본 데이터 분석 중...');
+        const data = await processZipFileWithValidation(file, fileId);
+        
+        updateProgress(90, '검증 완료, 결과 표시 중...');
         displayResults({[fileId]: data});
         
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 2000);
-        showStatus('데이터 처리가 완료되었습니다!', 'info');
-
+        hideProgress();
+        
+        // 검증 결과에 따른 상태 메시지
+        const validation = data._validation;
+        if (validation && validation.summary.validationPassed) {
+            showStatus('✅ 데이터 처리 및 검증이 완료되었습니다!', 'info');
+        } else {
+            showStatus('⚠️ 데이터 처리는 완료되었으나 일부 문제가 발견되었습니다. 검증 보고서를 확인하세요.', 'warning');
+        }
+        
     } catch (error) {
-        console.error('처리 중 오류:', error);
         hideProgress();
         showStatus('오류가 발생했습니다: ' + error.message, 'error');
     }
 }
-
 // 다중 파일 처리
 async function processMultipleFiles() {
     if (selectedFiles.length === 0) {
@@ -214,26 +222,40 @@ async function processMultipleFiles() {
             
             updateProgress((i / selectedFiles.length) * 80, `${file.name} 처리 중... (${i + 1}/${selectedFiles.length})`);
             
-            const data = await processZipFile(file, fileId);
+            // 검증 시스템과 함께 처리
+            const data = await processZipFileWithValidation(file, fileId);
             allProcessedData[fileId] = data;
         }
 
-        updateProgress(90, '결과 생성 중...');
-        
+        updateProgress(90, '검증 완료, 결과 표시 중...');
         const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
         displayMultiResults(allProcessedData, mergeMode);
         
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 2000);
-        showStatus(`${selectedFiles.length}개 파일 처리가 완료되었습니다!`, 'info');
-
+        hideProgress();
+        
+        // 전체 검증 결과 요약
+        let totalIssues = 0;
+        let allPassed = true;
+        
+        for (const fileId in allProcessedData) {
+            const validation = allProcessedData[fileId]._validation;
+            if (validation && !validation.summary.validationPassed) {
+                allPassed = false;
+                totalIssues += validation.summary.issues.length;
+            }
+        }
+        
+        if (allPassed) {
+            showStatus(`✅ ${selectedFiles.length}개 파일 처리 및 검증이 모두 완료되었습니다!`, 'info');
+        } else {
+            showStatus(`⚠️ ${selectedFiles.length}개 파일 처리는 완료되었으나 ${totalIssues}개의 문제가 발견되었습니다.`, 'warning');
+        }
+        
     } catch (error) {
-        console.error('처리 중 오류:', error);
         hideProgress();
         showStatus('오류가 발생했습니다: ' + error.message, 'error');
     }
 }
-
 // ZIP 파일 처리 핵심 함수
 async function processZipFile(file, fileId) {
     const zip = await JSZip.loadAsync(file);
@@ -1152,20 +1174,41 @@ async function processNestedFiles() {
             const innerZipBlob = await currentNestedZip.files[fileInfo.filename].async('blob');
             const innerZipFile = new File([innerZipBlob], fileInfo.filename, { type: 'application/zip' });
             
-            const data = await processZipFile(innerZipFile, fileInfo.fileId);
+            // 검증 시스템과 함께 처리
+            const data = await processZipFileWithValidation(innerZipFile, fileInfo.fileId);
             allProcessedData[fileInfo.fileId] = data;
         }
 
+        updateProgress(90, '검증 완료, 결과 표시 중...');
         const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
         displayMultiResults(allProcessedData, mergeMode);
         
         hideProgress();
-        showStatus(`${nestedZipFiles.length}개 내부 파일 처리가 완료되었습니다!`, 'info');
+        
+        // 전체 검증 결과 요약
+        let totalIssues = 0;
+        let allPassed = true;
+        
+        for (const fileId in allProcessedData) {
+            const validation = allProcessedData[fileId]._validation;
+            if (validation && !validation.summary.validationPassed) {
+                allPassed = false;
+                totalIssues += validation.summary.issues.length;
+            }
+        }
+        
+        if (allPassed) {
+            showStatus(`✅ ${nestedZipFiles.length}개 내부 파일 처리 및 검증이 모두 완료되었습니다!`, 'info');
+        } else {
+            showStatus(`⚠️ ${nestedZipFiles.length}개 내부 파일 처리는 완료되었으나 ${totalIssues}개의 문제가 발견되었습니다.`, 'warning');
+        }
+        
     } catch (error) {
         hideProgress();
         showStatus('오류가 발생했습니다: ' + error.message, 'error');
     }
 }
+
 
 // ZIP 파일 처리 핵심 함수
 async function processZipFile(file, fileId) {
@@ -1350,6 +1393,7 @@ function createUnifiedData(allData) {
 }
 
 // 데이터 카드 생성
+
 function createDataCard(dataType, data, fileId) {
     const key = fileId + '_' + dataType;
     downloadableData[key] = data;
@@ -1360,8 +1404,29 @@ function createDataCard(dataType, data, fileId) {
     const filename = fileId + '_' + dataType + '.csv';
     const rowCount = data.length;
     
+    // 검증 정보 표시 (만약 있다면)
+    let validationHtml = '';
+    if (allProcessedData[fileId] && allProcessedData[fileId]._validation) {
+        const validation = allProcessedData[fileId]._validation.detailedResults[dataType];
+        if (validation) {
+            const statusIcon = validation.passed ? '✅' : '⚠️';
+            const statusColor = validation.passed ? '#27ae60' : '#f39c12';
+            const statusText = validation.passed ? '검증 통과' : '문제 발견';
+            
+            validationHtml = `
+                <div style="background: ${statusColor}20; border: 1px solid ${statusColor}; border-radius: 5px; padding: 10px; margin: 10px 0;">
+                    <strong>${statusIcon} ${statusText}</strong>
+                    ${validation.issues.length > 0 ? `<br><small>문제: ${validation.issues.join(', ')}</small>` : ''}
+                    <br><small>원본: ${validation.originalRows}행 → 처리: ${validation.processedRows}행</small>
+                    ${validation.duplicateCheck.duplicateCount > 0 ? `<br><small>⚠️ 중복 데이터: ${validation.duplicateCheck.duplicateCount}개</small>` : ''}
+                </div>
+            `;
+        }
+    }
+    
     card.innerHTML = `
         <h3>📄 ${filename}</h3>
+        ${validationHtml}
         <div class="stats">
             <div class="stat-item">
                 <div class="stat-value">${rowCount.toLocaleString()}</div>
@@ -1372,14 +1437,20 @@ function createDataCard(dataType, data, fileId) {
                 <div>파일 크기</div>
             </div>
         </div>
-        <button class="btn download-btn" onclick="downloadCSV('${dataType}', '${fileId}')">
-            💾 ${filename} 다운로드
-        </button>
+        <div style="text-align: center; margin: 15px 0;">
+            <button class="btn download-btn" onclick="downloadCSV('${dataType}', '${fileId}')" style="margin: 5px;">
+                💾 ${filename} 다운로드
+            </button>
+            ${fileId !== 'merged_all' && fileId !== 'all_types' ? `
+                <button class="btn" onclick="displayValidationReport('${fileId}')" style="background: linear-gradient(45deg, #9b59b6, #8e44ad); margin: 5px;">
+                    📊 검증 보고서
+                </button>
+            ` : ''}
+        </div>
     `;
     
     fileResults.appendChild(card);
 }
-
 // 다운로드 함수
 function downloadCSV(dataType, fileId) {
     try {
