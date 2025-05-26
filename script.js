@@ -1412,3 +1412,506 @@ function downloadCSV(dataType, fileId) {
         showStatus('다운로드 중 오류가 발생했습니다: ' + error.message, 'error');
     }
 }
+
+
+// 데이터 검증 시스템
+class DataValidationSystem {
+    constructor() {
+        this.originalData = {};
+        this.validationResults = {};
+    }
+
+    // 원본 데이터 저장 및 기본 통계 생성
+    async storeOriginalData(zipFile, fileId) {
+        const stats = {
+            fileId: fileId,
+            totalFiles: 0,
+            csvFiles: {},
+            rawStats: {},
+            timestamp: new Date().toISOString()
+        };
+
+        const zip = await JSZip.loadAsync(zipFile);
+        stats.totalFiles = Object.keys(zip.files).length;
+        
+        // CSV 파일별 원본 통계
+        for (const filename in zip.files) {
+            if (filename.endsWith('.csv')) {
+                const csvContent = await zip.files[filename].async('text');
+                const lines = csvContent.split('\n');
+                
+                let dataType = 'unknown';
+                if (filename.includes('heart_rate')) dataType = 'heart_rate';
+                else if (filename.includes('stress')) dataType = 'stress';
+                else if (filename.includes('pedometer_step_count')) dataType = 'step_count';
+                else if (filename.includes('sleep')) dataType = 'sleep';
+                
+                if (dataType !== 'unknown') {
+                    if (!stats.csvFiles[dataType]) stats.csvFiles[dataType] = [];
+                    
+                    const fileStats = {
+                        filename: filename,
+                        totalLines: lines.length,
+                        dataLines: lines.length - 1,
+                        fileSize: csvContent.length
+                    };
+                    
+                    stats.csvFiles[dataType].push(fileStats);
+                    
+                    if (!stats.rawStats[dataType]) {
+                        stats.rawStats[dataType] = {
+                            totalFiles: 0,
+                            totalRows: 0,
+                            totalSize: 0
+                        };
+                    }
+                    
+                    stats.rawStats[dataType].totalFiles++;
+                    stats.rawStats[dataType].totalRows += fileStats.dataLines;
+                    stats.rawStats[dataType].totalSize += fileStats.fileSize;
+                }
+            }
+        }
+        
+        this.originalData[fileId] = stats;
+        return stats;
+    }
+
+    // 처리된 데이터 검증
+    validateProcessedData(processedData, fileId) {
+        const validation = {
+            fileId: fileId,
+            timestamp: new Date().toISOString(),
+            summary: {
+                totalDataTypes: 0,
+                totalProcessedRows: 0,
+                validationPassed: true,
+                issues: []
+            },
+            detailedResults: {}
+        };
+
+        const originalStats = this.originalData[fileId];
+        
+        if (!originalStats) {
+            validation.summary.validationPassed = false;
+            validation.summary.issues.push('원본 데이터 통계를 찾을 수 없습니다.');
+            return validation;
+        }
+
+        // 각 데이터 타입별 검증
+        for (const dataType in processedData) {
+            if (dataType === '_validation') continue;
+            
+            const data = processedData[dataType].data;
+            const originalStat = originalStats.rawStats[dataType];
+            
+            validation.summary.totalDataTypes++;
+            validation.summary.totalProcessedRows += data.length;
+            
+            const typeValidation = {
+                dataType: dataType,
+                originalRows: originalStat ? originalStat.totalRows : 0,
+                processedRows: data.length,
+                rowDifference: 0,
+                dataIntegrity: this.checkDataIntegrity(data, dataType),
+                duplicateCheck: this.checkDuplicates(data),
+                passed: true,
+                issues: []
+            };
+
+            // 행 수 비교
+            typeValidation.rowDifference = typeValidation.processedRows - typeValidation.originalRows;
+            
+            // 10% 이상 차이 시 경고
+            if (Math.abs(typeValidation.rowDifference) > typeValidation.originalRows * 0.1) {
+                typeValidation.passed = false;
+                typeValidation.issues.push(`행 수 차이가 10% 이상입니다. (원본: ${typeValidation.originalRows}, 처리: ${typeValidation.processedRows})`);
+            }
+
+            // 데이터 무결성 검사
+            if (!typeValidation.dataIntegrity.passed) {
+                typeValidation.passed = false;
+                typeValidation.issues = typeValidation.issues.concat(typeValidation.dataIntegrity.issues);
+            }
+
+            // 중복 체크
+            if (typeValidation.duplicateCheck.duplicateCount > 0) {
+                typeValidation.issues.push(`중복 데이터 ${typeValidation.duplicateCheck.duplicateCount}개 발견`);
+            }
+
+            validation.detailedResults[dataType] = typeValidation;
+            
+            if (!typeValidation.passed) {
+                validation.summary.validationPassed = false;
+                validation.summary.issues = validation.summary.issues.concat(typeValidation.issues);
+            }
+        }
+
+        this.validationResults[fileId] = validation;
+        return validation;
+    }
+
+    // 데이터 무결성 검사
+    checkDataIntegrity(data, dataType) {
+        const result = {
+            passed: true,
+            issues: [],
+            stats: {
+                nullValues: 0,
+                invalidDates: 0,
+                outOfRangeValues: 0,
+                totalRows: data.length
+            }
+        };
+
+        const expectedColumns = OUTPUT_COLUMNS[dataType];
+        
+        for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            
+            // Null 값 체크
+            for (const col of expectedColumns) {
+                if (row[col] === null || row[col] === undefined || row[col] === '') {
+                    result.stats.nullValues++;
+                }
+            }
+            
+            // 날짜 형식 체크
+            if (row.start_time && !this.isValidDate(row.start_time)) {
+                result.stats.invalidDates++;
+            }
+            
+            // 값 범위 체크
+            if (dataType === 'heart_rate') {
+                if (row.heart_rate && (row.heart_rate < 30 || row.heart_rate > 250)) {
+                    result.stats.outOfRangeValues++;
+                }
+            } else if (dataType === 'stress') {
+                if (row.score && (row.score < 0 || row.score > 100)) {
+                    result.stats.outOfRangeValues++;
+                }
+            } else if (dataType === 'step_count') {
+                if (row.count && row.count < 0) {
+                    result.stats.outOfRangeValues++;
+                }
+            }
+        }
+
+        // 임계값 체크
+        const nullPercentage = (result.stats.nullValues / (data.length * expectedColumns.length)) * 100;
+        
+        if (nullPercentage > 50) {
+            result.passed = false;
+            result.issues.push(`NULL 값이 ${nullPercentage.toFixed(1)}%로 과도하게 많습니다.`);
+        }
+        
+        if (result.stats.outOfRangeValues > data.length * 0.05) {
+            result.passed = false;
+            result.issues.push(`비정상적인 값이 ${result.stats.outOfRangeValues}개 발견되었습니다.`);
+        }
+
+        return result;
+    }
+
+    // 중복 체크
+    checkDuplicates(data) {
+        const result = {
+            duplicateCount: 0,
+            uniqueCount: 0,
+            duplicateRows: []
+        };
+
+        const seen = new Set();
+        
+        for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            const key = `${row.start_time}_${row.end_time}_${row.source_file}`;
+            
+            if (seen.has(key)) {
+                result.duplicateRows.push(i);
+            } else {
+                seen.add(key);
+            }
+        }
+
+        result.duplicateCount = result.duplicateRows.length;
+        result.uniqueCount = data.length - result.duplicateCount;
+
+        return result;
+    }
+
+    // 검증 보고서 생성
+    generateValidationReport(fileId) {
+        const original = this.originalData[fileId];
+        const validation = this.validationResults[fileId];
+        
+        if (!original || !validation) {
+            return null;
+        }
+
+        return {
+            fileId: fileId,
+            timestamp: new Date().toISOString(),
+            summary: {
+                overallStatus: validation.summary.validationPassed ? 'PASSED' : 'FAILED',
+                totalIssues: validation.summary.issues.length,
+                dataTypes: validation.summary.totalDataTypes,
+                processedRows: validation.summary.totalProcessedRows
+            },
+            originalStats: original.rawStats,
+            validationResults: validation.detailedResults
+        };
+    }
+
+    // 유틸리티 함수
+    isValidDate(dateString) {
+        const date = new Date(dateString);
+        return !isNaN(date.getTime()) && date.getFullYear() > 2000 && date.getFullYear() < 2030;
+    }
+}
+
+// 전역 검증 시스템 인스턴스
+const validationSystem = new DataValidationSystem();
+
+// 검증과 함께 ZIP 파일 처리
+async function processZipFileWithValidation(file, fileId) {
+    // 1. 원본 데이터 통계 저장
+    await validationSystem.storeOriginalData(file, fileId);
+    
+    // 2. 기존 처리 로직 실행
+    const processedData = await processZipFile(file, fileId);
+    
+    // 3. 처리된 데이터 검증
+    const validationResult = validationSystem.validateProcessedData(processedData, fileId);
+    
+    // 4. 검증 결과를 처리된 데이터에 추가
+    processedData._validation = validationResult;
+    
+    return processedData;
+}
+
+// 기존 handleSingleFile 함수를 검증 버전으로 교체
+async function handleSingleFileWithValidation(file) {
+    showProgress();
+    showStatus('ZIP 파일을 분석하고 있습니다...', 'info');
+
+    try {
+        const fileId = getFileIdentifier(file.name);
+        
+        updateProgress(30, '원본 데이터 분석 중...');
+        const data = await processZipFileWithValidation(file, fileId);
+        
+        updateProgress(90, '검증 완료, 결과 표시 중...');
+        displayResults({[fileId]: data});
+        
+        hideProgress();
+        
+        // 검증 결과에 따른 상태 메시지
+        const validation = data._validation;
+        if (validation && validation.summary.validationPassed) {
+            showStatus('✅ 데이터 처리 및 검증이 완료되었습니다!', 'info');
+        } else {
+            showStatus('⚠️ 데이터 처리는 완료되었으나 일부 문제가 발견되었습니다. 검증 보고서를 확인하세요.', 'warning');
+        }
+        
+    } catch (error) {
+        hideProgress();
+        showStatus('오류가 발생했습니다: ' + error.message, 'error');
+    }
+}
+
+// 검증 보고서 표시 함수
+function displayValidationReport(fileId) {
+    const report = validationSystem.generateValidationReport(fileId);
+    
+    if (!report) {
+        showStatus('검증 보고서를 생성할 수 없습니다.', 'error');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 10000; display: flex;
+        align-items: center; justify-content: center;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: white; padding: 30px; border-radius: 15px;
+        max-width: 90%; max-height: 80%; overflow: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    `;
+    
+    const statusColor = report.summary.overallStatus === 'PASSED' ? '#27ae60' : '#e74c3c';
+    const statusIcon = report.summary.overallStatus === 'PASSED' ? '✅' : '❌';
+    
+    content.innerHTML = `
+        <h3 style="color: #2c3e50; margin-bottom: 20px;">📊 데이터 검증 보고서 - ${fileId}</h3>
+        
+        <div style="background: ${statusColor}20; border: 2px solid ${statusColor}; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="color: ${statusColor}; margin-bottom: 10px;">${statusIcon} 전체 상태: ${report.summary.overallStatus}</h4>
+            <p style="margin: 5px 0;">처리된 데이터 타입: ${report.summary.dataTypes}개</p>
+            <p style="margin: 5px 0;">총 처리된 행: ${report.summary.processedRows.toLocaleString()}개</p>
+            <p style="margin: 5px 0;">발견된 문제: ${report.summary.totalIssues}개</p>
+        </div>
+        
+        <div style="max-height: 300px; overflow-y: auto;">
+            ${Object.keys(report.validationResults).map(dataType => {
+                const result = report.validationResults[dataType];
+                const typeStatus = result.passed ? '✅' : '❌';
+                const typeColor = result.passed ? '#27ae60' : '#e74c3c';
+                
+                return `
+                    <details style="margin: 10px 0; border: 1px solid #dee2e6; border-radius: 5px;">
+                        <summary style="padding: 10px; background: ${typeColor}10; cursor: pointer;">
+                            ${typeStatus} ${dataType} (${result.processedRows}행)
+                        </summary>
+                        <div style="padding: 15px;">
+                            <p><strong>원본 행 수:</strong> ${result.originalRows}</p>
+                            <p><strong>처리된 행 수:</strong> ${result.processedRows}</p>
+                            <p><strong>차이:</strong> ${result.rowDifference}</p>
+                            <p><strong>중복 데이터:</strong> ${result.duplicateCheck.duplicateCount}개</p>
+                            ${result.issues.length > 0 ? `
+                                <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                                    <strong>발견된 문제:</strong>
+                                    <ul style="margin: 5px 0; padding-left: 20px;">
+                                        ${result.issues.map(issue => `<li>${issue}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </details>
+                `;
+            }).join('')}
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <button onclick="downloadValidationReport('${fileId}')" 
+                    style="padding: 12px 20px; background: #3498db; color: white; border: none; border-radius: 8px; margin: 5px; cursor: pointer;">
+                📄 보고서 다운로드
+            </button>
+            <button onclick="this.parentElement.parentElement.remove()" 
+                    style="padding: 12px 20px; background: #95a5a6; color: white; border: none; border-radius: 8px; margin: 5px; cursor: pointer;">
+                ❌ 닫기
+            </button>
+        </div>
+    `;
+    
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+}
+
+// 검증 보고서 다운로드
+function downloadValidationReport(fileId) {
+    const report = validationSystem.generateValidationReport(fileId);
+    
+    if (!report) return;
+    
+    const reportText = `# Samsung Health 데이터 검증 보고서
+
+## 기본 정보
+- 파일 ID: ${report.fileId}
+- 생성 시간: ${report.timestamp}
+- 전체 상태: ${report.summary.overallStatus}
+- 처리된 데이터 타입: ${report.summary.dataTypes}개
+- 총 처리된 행: ${report.summary.processedRows}개
+- 발견된 문제: ${report.summary.totalIssues}개
+
+## 상세 검증 결과
+
+${Object.keys(report.validationResults).map(dataType => {
+    const result = report.validationResults[dataType];
+    return `### ${dataType}
+- 상태: ${result.passed ? 'PASSED' : 'FAILED'}
+- 원본 행 수: ${result.originalRows}
+- 처리된 행 수: ${result.processedRows}
+- 차이: ${result.rowDifference}
+- 중복 데이터: ${result.duplicateCheck.duplicateCount}개
+- 문제점: ${result.issues.join(', ') || '없음'}
+`;
+}).join('\n')}
+
+---
+보고서 생성 시간: ${new Date().toLocaleString('ko-KR')}
+`;
+    
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `validation_report_${fileId}_${new Date().toISOString().slice(0,10)}.txt`;
+    link.click();
+    
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// createDataCard 함수를 검증 정보 포함 버전으로 교체
+function createDataCardWithValidation(dataType, data, fileId) {
+    const key = fileId + '_' + dataType;
+    downloadableData[key] = data;
+    
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    
+    const filename = fileId + '_' + dataType + '.csv';
+    const rowCount = data.length;
+    
+    // 검증 정보 표시 (만약 있다면)
+    let validationHtml = '';
+    if (allProcessedData[fileId] && allProcessedData[fileId]._validation) {
+        const validation = allProcessedData[fileId]._validation.detailedResults[dataType];
+        if (validation) {
+            const statusIcon = validation.passed ? '✅' : '⚠️';
+            const statusColor = validation.passed ? '#27ae60' : '#f39c12';
+            const statusText = validation.passed ? '검증 통과' : '문제 발견';
+            
+            validationHtml = `
+                <div style="background: ${statusColor}20; border: 1px solid ${statusColor}; border-radius: 5px; padding: 10px; margin: 10px 0;">
+                    <strong>${statusIcon} ${statusText}</strong>
+                    ${validation.issues.length > 0 ? `<br><small>문제: ${validation.issues.join(', ')}</small>` : ''}
+                    <br><small>원본: ${validation.originalRows}행 → 처리: ${validation.processedRows}행</small>
+                    ${validation.duplicateCheck.duplicateCount > 0 ? `<br><small>⚠️ 중복 데이터: ${validation.duplicateCheck.duplicateCount}개</small>` : ''}
+                </div>
+            `;
+        }
+    }
+    
+    card.innerHTML = `
+        <h3>📄 ${filename}</h3>
+        ${validationHtml}
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value">${rowCount.toLocaleString()}</div>
+                <div>행 수</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">${(new Blob([Papa.unparse(data)]).size / 1024).toFixed(1)}KB</div>
+                <div>파일 크기</div>
+            </div>
+        </div>
+        <div style="text-align: center; margin: 15px 0;">
+            <button class="btn download-btn" onclick="downloadCSV('${dataType}', '${fileId}')" style="margin: 5px;">
+                💾 ${filename} 다운로드
+            </button>
+            ${fileId !== 'merged_all' && fileId !== 'all_types' ? `
+                <button class="btn" onclick="displayValidationReport('${fileId}')" style="background: linear-gradient(45deg, #9b59b6, #8e44ad); margin: 5px;">
+                    📊 검증 보고서
+                </button>
+            ` : ''}
+        </div>
+    `;
+    
+    fileResults.appendChild(card);
+}
+
+// ==================== 기존 함수들 업데이트 ====================
+
+// handleSingleFile 함수를 검증 버전으로 교체
+const originalHandleSingleFile = handleSingleFile;
+handleSingleFile = handleSingleFileWithValidation;
+
+// createDataCard 함수를 검증 버전으로 교체  
+const originalCreateDataCard = createDataCard;
+createDataCard = createDataCardWithValidation;
