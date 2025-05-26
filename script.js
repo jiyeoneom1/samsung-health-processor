@@ -828,10 +828,10 @@ const TARGET_COLUMNS = {
 };
 
 const OUTPUT_COLUMNS = {
-    'heart_rate': ['start_time', 'end_time', 'max', 'min', 'heart_rate'],
-    'stress': ['start_time', 'end_time', 'max', 'min', 'score'],
-    'step_count': ['start_time', 'end_time', 'count', 'calorie'],
-    'sleep': ['start_time', 'end_time', 'sleep_score', 'sleep_duration', 'efficiency', 'total_rem_duration', 'total_light_duration', 'sleep_cycle']
+    'heart_rate': ['start_time', 'end_time', 'heart_rate', 'confidence'],
+    'stress': ['start_time', 'end_time', 'score', 'level'],
+    'step_count': ['start_time', 'end_time', 'count', 'distance'],
+    'sleep': ['start_time', 'end_time', 'stage', 'duration']
 };
 
 let selectedFiles = [];
