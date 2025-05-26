@@ -183,7 +183,7 @@ async function handleSingleFile(file) {
         const fileId = getFileIdentifier(file.name);
         
         updateProgress(30, '원본 데이터 분석 중...');
-        const data = await processZipFileWithValidation(file, fileId);
+        const data = await processZipFileWithValidation(file, fileId);  // 이 줄이 핵심!
         
         updateProgress(90, '검증 완료, 결과 표시 중...');
         displayResults({[fileId]: data});
