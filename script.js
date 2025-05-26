@@ -260,8 +260,8 @@ async function processMultipleFiles() {
 async function processZipFile(file, fileId) {
     const zip = await JSZip.loadAsync(file);
     
-    var csvFiles = {};
-    var targetPatterns = [
+    const csvFiles = {};
+    const targetPatterns = [
         'com.samsung.shealth.tracker.heart_rate',
         'com.samsung.shealth.stress', 
         'com.samsung.shealth.tracker.pedometer_step_count',
@@ -272,7 +272,7 @@ async function processZipFile(file, fileId) {
         if (filename.endsWith('.csv')) {
             targetPatterns.forEach(function(pattern) {
                 if (filename.includes(pattern)) {
-                    var type = getDataType(pattern);
+                    const type = getDataType(pattern);
                     if (!csvFiles[type]) csvFiles[type] = [];
                     csvFiles[type].push(filename);
                 }
@@ -280,23 +280,21 @@ async function processZipFile(file, fileId) {
         }
     });
     
-    var processedData = {};
+    const processedData = {};
 
-    for (var dataType in csvFiles) {
-        var filenames = csvFiles[dataType];
+    for (const dataType in csvFiles) {
+        const filenames = csvFiles[dataType];
         if (filenames.length === 0) continue;
         
-        var allRows = [];
+        let allRows = [];
         
-        for (var f = 0; f < filenames.length; f++) {
-            var filename = filenames[f];
-            var csvContent = await zip.files[filename].async('text');
+        for (const filename of filenames) {
+            const csvContent = await zip.files[filename].async('text');
+            const lines = csvContent.split('\n');
+            const dataLines = lines.slice(1);
+            const cleanedCsv = dataLines.join('\n');
             
-            var lines = csvContent.split('\n');
-            var dataLines = lines.slice(1);
-            var cleanedCsv = dataLines.join('\n');
-            
-            var parsed = Papa.parse(cleanedCsv, {
+            const parsed = Papa.parse(cleanedCsv, {
                 header: true,
                 dynamicTyping: true,
                 skipEmptyLines: true,
@@ -304,19 +302,23 @@ async function processZipFile(file, fileId) {
                 quoteChar: '"'
             });
             
-            var filteredRows = [];
-            for (var r = 0; r < parsed.data.length; r++) {
-                var row = parsed.data[r];
-                var filteredRow = {};
-                var hasValidData = false;
+            const filteredRows = [];
+            for (const row of parsed.data) {
+                const filteredRow = {};
+                let hasValidData = false;
                 
-                for (var c = 0; c < TARGET_COLUMNS[dataType].length; c++) {
-                    var col = TARGET_COLUMNS[dataType][c];
-                    var outputCol = OUTPUT_COLUMNS[dataType][c];
-                    var value = row[col] || '';
-                    filteredRow[outputCol] = value;
-                    if (value !== '' && value !== null && value !== undefined) {
+                // TARGET_COLUMNS와 OUTPUT_COLUMNS의 매핑을 정확히 수행
+                for (let i = 0; i < TARGET_COLUMNS[dataType].length; i++) {
+                    const targetCol = TARGET_COLUMNS[dataType][i];
+                    const outputCol = OUTPUT_COLUMNS[dataType][i];
+                    const value = row[targetCol];
+                    
+                    // 값이 존재하는 경우에만 추가
+                    if (value !== undefined && value !== null && value !== '') {
+                        filteredRow[outputCol] = value;
                         hasValidData = true;
+                    } else {
+                        filteredRow[outputCol] = null;  // 명시적으로 null 설정
                     }
                 }
                 
@@ -329,9 +331,10 @@ async function processZipFile(file, fileId) {
             allRows = allRows.concat(filteredRows);
         }
         
-        allRows.sort(function(a, b) {
-            var timeA = new Date(a.start_time);
-            var timeB = new Date(b.start_time);
+        // 날짜 기준으로 정렬
+        allRows.sort((a, b) => {
+            const timeA = new Date(a.start_time || 0);
+            const timeB = new Date(b.start_time || 0);
             return timeA - timeB;
         });
         
@@ -821,10 +824,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 전역 변수들
 const TARGET_COLUMNS = {
-    'heart_rate': ['com.samsung.health.heart_rate.start_time', 'com.samsung.health.heart_rate.end_time', 'com.samsung.health.heart_rate.max', 'com.samsung.health.heart_rate.min', 'com.samsung.health.heart_rate.heart_rate'],
-    'stress': ['start_time', 'end_time', 'max', 'min', 'score'],
-    'step_count': ['com.samsung.health.step_count.start_time', 'com.samsung.health.step_count.end_time', 'com.samsung.health.step_count.count', 'com.samsung.health.step_count.calorie'],
-    'sleep': ['com.samsung.health.sleep.start_time', 'com.samsung.health.sleep.end_time', 'sleep_score', 'sleep_duration', 'efficiency', 'total_rem_duration', 'total_light_duration', 'sleep_cycle']
+    'heart_rate': ['com.samsung.health.heart_rate.start_time', 'com.samsung.health.heart_rate.end_time', 'com.samsung.health.heart_rate.heart_rate', 'com.samsung.health.heart_rate.confidence'],
+    'stress': ['com.samsung.health.stress.start_time', 'com.samsung.health.stress.end_time', 'com.samsung.health.stress.score', 'com.samsung.health.stress.level'],
+    'step_count': ['com.samsung.health.step_count.start_time', 'com.samsung.health.step_count.end_time', 'com.samsung.health.step_count.count', 'com.samsung.health.step_count.distance'],
+    'sleep': ['com.samsung.health.sleep.start_time', 'com.samsung.health.sleep.end_time', 'com.samsung.health.sleep.stage', 'com.samsung.health.sleep.duration']
 };
 
 const OUTPUT_COLUMNS = {
@@ -1234,13 +1237,18 @@ async function processZipFile(file, fileId) {
                 const filteredRow = {};
                 let hasValidData = false;
                 
-                for (let c = 0; c < TARGET_COLUMNS[dataType].length; c++) {
-                    const col = TARGET_COLUMNS[dataType][c];
-                    const outputCol = OUTPUT_COLUMNS[dataType][c];
-                    const value = row[col] || '';
-                    filteredRow[outputCol] = value;
-                    if (value !== '' && value !== null && value !== undefined) {
+                // TARGET_COLUMNS와 OUTPUT_COLUMNS의 매핑을 정확히 수행
+                for (let i = 0; i < TARGET_COLUMNS[dataType].length; i++) {
+                    const targetCol = TARGET_COLUMNS[dataType][i];
+                    const outputCol = OUTPUT_COLUMNS[dataType][i];
+                    const value = row[targetCol];
+                    
+                    // 값이 존재하는 경우에만 추가
+                    if (value !== undefined && value !== null && value !== '') {
+                        filteredRow[outputCol] = value;
                         hasValidData = true;
+                    } else {
+                        filteredRow[outputCol] = null;  // 명시적으로 null 설정
                     }
                 }
                 
@@ -1253,7 +1261,12 @@ async function processZipFile(file, fileId) {
             allRows = allRows.concat(filteredRows);
         }
         
-        allRows.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+        // 날짜 기준으로 정렬
+        allRows.sort((a, b) => {
+            const timeA = new Date(a.start_time || 0);
+            const timeB = new Date(b.start_time || 0);
+            return timeA - timeB;
+        });
         
         processedData[dataType] = {
             data: allRows,
