@@ -183,7 +183,7 @@ async function handleSingleFile(file) {
         const fileId = getFileIdentifier(file.name);
         
         updateProgress(30, '원본 데이터 분석 중...');
-        const data = await processZipFileWithValidation(file, fileId);  // 이 줄이 핵심!
+        const data = await processZipFileWithValidation(file, fileId);
         
         updateProgress(90, '검증 완료, 결과 표시 중...');
         displayResults({[fileId]: data});
@@ -490,97 +490,74 @@ function createUnifiedData(allData) {
 
 // 데이터 카드 생성
 function createDataCard(dataType, data, fileId) {
-    var key = fileId + '_' + dataType;
-    downloadableData[key] = data;
+    const key = fileId + '_' + dataType;
     
-    var card = document.createElement('div');
+    // _validation 데이터를 제외한 순수 데이터만 저장
+    const cleanData = Array.isArray(data) ? data : data.data || [];
+    downloadableData[key] = cleanData;
+    
+    const card = document.createElement('div');
     card.className = 'file-card';
     
-    var filename = fileId + '_' + dataType + '.csv';
-    var rowCount = data.length;
+    const filename = fileId + '_' + dataType + '.csv';
+    const rowCount = cleanData.length;
     
-    var columnCount;
-    if (dataType === 'unified') {
-        columnCount = 9;
-    } else {
-        columnCount = OUTPUT_COLUMNS[dataType].length + (fileId !== 'merged_all' ? 1 : 0);
+    // 검증 정보 표시 (만약 있다면)
+    let validationHtml = '';
+    if (allProcessedData[fileId] && allProcessedData[fileId]._validation) {
+        const validation = allProcessedData[fileId]._validation.detailedResults[dataType];
+        if (validation) {
+            const statusIcon = validation.passed ? '✅' : '⚠️';
+            const statusColor = validation.passed ? '#27ae60' : '#f39c12';
+            const statusText = validation.passed ? '검증 통과' : '문제 발견';
+            
+            validationHtml = `
+                <div style="background: ${statusColor}20; border: 1px solid ${statusColor}; border-radius: 5px; padding: 10px; margin: 10px 0;">
+                    <strong>${statusIcon} ${statusText}</strong>
+                    ${validation.issues.length > 0 ? `<br><small>문제: ${validation.issues.join(', ')}</small>` : ''}
+                    <br><small>원본: ${validation.originalRows}행 → 처리: ${validation.processedRows}행</small>
+                    ${validation.duplicateCheck.duplicateCount > 0 ? `<br><small>⚠️ 중복 데이터: ${validation.duplicateCheck.duplicateCount}개</small>` : ''}
+                </div>
+            `;
+        }
     }
     
-    var preview = data.slice(0, 3);
-    
-    var tableHtml = '';
-    if (data.length > 0) {
-        tableHtml = '<table><thead><tr>';
-        
-        if (dataType === 'unified') {
-            var unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
-            unifiedHeaders.forEach(function(header) {
-                tableHtml += '<th>' + header + '</th>';
-            });
-        } else {
-            for (var c = 0; c < OUTPUT_COLUMNS[dataType].length; c++) {
-                tableHtml += '<th>' + OUTPUT_COLUMNS[dataType][c] + '</th>';
-            }
-            if (fileId === 'merged_all') {
-                tableHtml += '<th>source_file</th>';
-            }
-        }
-        tableHtml += '</tr></thead><tbody>';
-        
-        for (var r = 0; r < preview.length; r++) {
-            tableHtml += '<tr>';
-            if (dataType === 'unified') {
-                var unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
-                unifiedHeaders.forEach(function(header) {
-                    tableHtml += '<td>' + (preview[r][header] || '') + '</td>';
-                });
-            } else {
-                for (var c = 0; c < OUTPUT_COLUMNS[dataType].length; c++) {
-                    var col = OUTPUT_COLUMNS[dataType][c];
-                    tableHtml += '<td>' + (preview[r][col] || '') + '</td>';
-                }
-                if (fileId === 'merged_all') {
-                    tableHtml += '<td>' + (preview[r].source_file || '') + '</td>';
-                }
-            }
-            tableHtml += '</tr>';
-        }
-        tableHtml += '</tbody></table>';
+    // 안전한 파일 크기 계산
+    let fileSize = 0;
+    try {
+        fileSize = (new Blob([Papa.unparse(cleanData)]).size / 1024).toFixed(1);
+    } catch (e) {
+        console.log('파일 크기 계산 오류:', e);
+        fileSize = 'N/A';
     }
     
-    var descriptionHtml = '';
-    if (dataType === 'unified') {
-        var typeCounts = {};
-        data.forEach(function(row) {
-            typeCounts[row.data_type] = (typeCounts[row.data_type] || 0) + 1;
-        });
-        
-        descriptionHtml = '<div style="background: #e8f4fd; border: 1px solid #0984e3; border-radius: 5px; padding: 10px; margin: 10px 0;">' +
-            '<strong>📊 통합 데이터 구성:</strong><br>';
-        for (var type in typeCounts) {
-            descriptionHtml += '• ' + type + ': ' + typeCounts[type].toLocaleString() + '행<br>';
-        }
-        descriptionHtml += '<small style="color: #666;">value1-6: 각 데이터 타입별 주요 값들이 매핑됨</small></div>';
-    }
-    
-    card.innerHTML = 
-        '<h3>📄 ' + filename + '</h3>' +
-        descriptionHtml +
-        '<div class="stats">' +
-            '<div class="stat-item"><div class="stat-value">' + rowCount.toLocaleString() + '</div><div>행 수</div></div>' +
-            '<div class="stat-item"><div class="stat-value">' + columnCount + '</div><div>컬럼 수</div></div>' +
-            '<div class="stat-item"><div class="stat-value">' + (new Blob([Papa.unparse(data)]).size / 1024).toFixed(1) + 'KB</div><div>파일 크기</div></div>' +
-        '</div>' +
-        '<details><summary>📋 데이터 미리보기 (처음 3행)</summary>' +
-            '<div style="overflow-x: auto; margin-top: 10px;">' + tableHtml + '</div>' +
-        '</details>' +
-        '<button class="btn download-btn" onclick="downloadCSVSafe(\'' + dataType + '\', \'' + fileId + '\')">' +
-            '💾 ' + filename + ' 다운로드' +
-        '</button>';
+    card.innerHTML = `
+        <h3>📄 ${filename}</h3>
+        ${validationHtml}
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value">${rowCount.toLocaleString()}</div>
+                <div>행 수</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">${fileSize}KB</div>
+                <div>파일 크기</div>
+            </div>
+        </div>
+        <div style="text-align: center; margin: 15px 0;">
+            <button class="btn download-btn" onclick="downloadCSV('${dataType}', '${fileId}')" style="margin: 5px;">
+                💾 ${filename} 다운로드
+            </button>
+            ${fileId !== 'merged_all' && fileId !== 'all_types' ? `
+                <button class="btn" onclick="displayValidationReport('${fileId}')" style="background: linear-gradient(45deg, #9b59b6, #8e44ad); margin: 5px;">
+                    📊 검증 보고서
+                </button>
+            ` : ''}
+        </div>
+    `;
     
     fileResults.appendChild(card);
 }
-
 // 일괄 다운로드 섹션 생성
 function createBulkDownloadSection(mergedData) {
     downloadSection.style.display = 'block';
@@ -611,23 +588,46 @@ function createBulkDownloadSection(mergedData) {
 }
 
 // CSV 다운로드 함수 (개선된 버전)
-function downloadCSV(dataType, data, fileId) {
+function downloadCSV(dataType, fileId) {
     try {
-        var filename = fileId + '_' + dataType + '.csv';
-        console.log('다운로드 시작:', filename);
+        const key = fileId + '_' + dataType;
+        let data = downloadableData[key];
         
-        if (!data || data.length === 0) {
-            showStatus('다운로드할 데이터가 없습니다.', 'warning');
+        if (!data) {
+            showStatus('다운로드할 데이터를 찾을 수 없습니다.', 'error');
             return;
         }
         
-        // CSV 데이터 생성 (BOM 추가로 한글 지원)
-        var csv = '\uFEFF' + Papa.unparse(data);
-        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        // 데이터가 배열이 아닌 경우 처리
+        if (!Array.isArray(data)) {
+            if (data.data && Array.isArray(data.data)) {
+                data = data.data;
+            } else {
+                showStatus('데이터 형식이 올바르지 않습니다.', 'error');
+                return;
+            }
+        }
         
-        // 다운로드 링크 생성
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement('a');
+        // _validation 등 불필요한 속성 제거
+        const cleanData = data.map(row => {
+            const cleanRow = {};
+            for (const key in row) {
+                if (key !== '_validation' && typeof row[key] !== 'object') {
+                    cleanRow[key] = row[key];
+                } else if (key !== '_validation' && typeof row[key] === 'object' && row[key] !== null) {
+                    // 객체인 경우 JSON 문자열로 변환 (raw_data 등)
+                    cleanRow[key] = JSON.stringify(row[key]);
+                }
+            }
+            return cleanRow;
+        });
+        
+        const filename = fileId + '_' + dataType + '.csv';
+        const csv = '\uFEFF' + Papa.unparse(cleanData);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
         link.href = url;
         link.download = filename;
         link.style.display = 'none';
@@ -637,40 +637,13 @@ function downloadCSV(dataType, data, fileId) {
         document.body.removeChild(link);
         
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        
         showStatus('파일 다운로드를 시작했습니다: ' + filename, 'info');
-        
-        // 브라우저에서 다운로드가 차단된 경우를 위한 대안
-        setTimeout(() => {
-            showAlternativeDownload(csv, filename);
-        }, 2000);
         
     } catch (error) {
         console.error('다운로드 오류:', error);
         showStatus('다운로드 중 오류가 발생했습니다: ' + error.message, 'error');
-        showAlternativeDownload(Papa.unparse(data), filename);
     }
 }
-
-// 안전한 CSV 다운로드 함수
-function downloadCSVSafe(dataType, fileId) {
-    try {
-        var key = fileId + '_' + dataType;
-        var data = downloadableData[key];
-        
-        if (!data) {
-            console.error('다운로드 데이터를 찾을 수 없습니다:', key);
-            showStatus('다운로드할 데이터를 찾을 수 없습니다.', 'error');
-            return;
-        }
-        
-        downloadCSV(dataType, data, fileId);
-    } catch (error) {
-        console.error('다운로드 오류:', error);
-        showStatus('다운로드 중 오류가 발생했습니다.', 'error');
-    }
-}
-
 // 대안 다운로드 방법
 function showAlternativeDownload(csv, filename) {
     var modal = document.createElement('div');
