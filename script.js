@@ -814,9 +814,9 @@ const ResultsManager = {
             columnCount = DATA_CONFIG.OUTPUT_COLUMNS[dataType].length + (fileId === 'merged_all' ? 1 : 0);
         }
         
-        // Create preview table with raw data display
+        // Create preview table
         const preview = data.slice(0, 3);
-        const tableHtml = this.createPreviewTable(dataType, preview, fileId, true); // Add raw data flag
+        const tableHtml = this.createPreviewTable(dataType, preview, fileId);
         
         // Description for unified data
         let descriptionHtml = '';
@@ -866,7 +866,7 @@ const ResultsManager = {
         Elements.resultsContainer.appendChild(card);
     },
 
-    createPreviewTable(dataType, preview, fileId, showRaw = false) {
+    createPreviewTable(dataType, preview, fileId) {
         if (preview.length === 0) {
             return '<p style="color: var(--gray-600);">데이터가 없습니다</p>';
         }
@@ -878,16 +878,10 @@ const ResultsManager = {
             const unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
             unifiedHeaders.forEach(header => {
                 tableHtml += `<th>${header}</th>`;
-                if (showRaw && (header === 'start_time' || header === 'end_time')) {
-                    tableHtml += `<th>${header}_raw</th>`;
-                }
             });
         } else {
             DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
                 tableHtml += `<th>${col}</th>`;
-                if (showRaw && (col === 'start_time' || col === 'end_time')) {
-                    tableHtml += `<th>${col}_raw</th>`;
-                }
             });
             if (fileId === 'merged_all') {
                 tableHtml += '<th>source_file</th>';
@@ -895,7 +889,7 @@ const ResultsManager = {
         }
         tableHtml += '</tr></thead><tbody>';
         
-        // Create data rows with both formatted and raw data
+        // Create data rows with formatted timestamps
         preview.forEach(row => {
             tableHtml += '<tr>';
             if (dataType === 'unified') {
@@ -904,28 +898,18 @@ const ResultsManager = {
                     let value = row[header] || '';
                     // Format timestamps for better readability
                     if ((header === 'start_time' || header === 'end_time') && value) {
-                        const formatted = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
-                        tableHtml += `<td>${formatted}</td>`;
-                        if (showRaw) {
-                            tableHtml += `<td style="font-family: monospace; font-size: 11px; background: #f0f0f0;">${value}</td>`;
-                        }
-                    } else {
-                        tableHtml += `<td>${value}</td>`;
+                        value = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
                     }
+                    tableHtml += `<td>${value}</td>`;
                 });
             } else {
                 DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
                     let value = row[col] || '';
                     // Format timestamps for better readability
                     if ((col === 'start_time' || col === 'end_time') && value) {
-                        const formatted = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
-                        tableHtml += `<td>${formatted}</td>`;
-                        if (showRaw) {
-                            tableHtml += `<td style="font-family: monospace; font-size: 11px; background: #f0f0f0;">${value}</td>`;
-                        }
-                    } else {
-                        tableHtml += `<td>${value}</td>`;
+                        value = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
                     }
+                    tableHtml += `<td>${value}</td>`;
                 });
                 if (fileId === 'merged_all') {
                     tableHtml += `<td>${row.source_file || ''}</td>`;
@@ -935,11 +919,6 @@ const ResultsManager = {
         });
         
         tableHtml += '</tbody></table>';
-        
-        if (showRaw) {
-            tableHtml += '<p style="font-size: 12px; color: var(--gray-600); margin-top: 10px;">💡 *_raw 컬럼은 원본 타임스탬프 값입니다</p>';
-        }
-        
         return tableHtml;
     },
 
