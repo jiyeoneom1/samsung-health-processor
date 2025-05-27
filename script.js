@@ -627,9 +627,9 @@ function createDataCard(dataType, data, fileId) {
     
     var columnCount;
     if (dataType === 'unified') {
-        columnCount = 9;
+        columnCount = 10; // data_type, source_file, start_time, end_time, value1-6
     } else {
-        columnCount = OUTPUT_COLUMNS[dataType].length + (fileId !== 'merged_all' ? 1 : 0);
+        columnCount = OUTPUT_COLUMNS[dataType].length + (fileId === 'merged_all' ? 1 : 0); // source_file 컬럼 포함
     }
     
     var preview = data.slice(0, 3);
@@ -766,10 +766,12 @@ function downloadCSV(dataType, data, fileId) {
         
         showStatus('파일 다운로드를 시작했습니다: ' + filename, 'info');
         
-        // 브라우저에서 다운로드가 차단된 경우를 위한 대안
+        // 브라우저에서 다운로드가 차단된 경우를 위한 대안 (3초 후)
         setTimeout(() => {
-            showAlternativeDownload(csv, filename);
-        }, 2000);
+            if (document.querySelector('.status.info')) {
+                showAlternativeDownload(csv, filename);
+            }
+        }, 3000);
         
     } catch (error) {
         console.error('다운로드 오류:', error);
@@ -817,11 +819,11 @@ function showAlternativeDownload(csv, filename) {
         <h3 style="color: #2c3e50; margin-bottom: 15px;">📄 ${filename} 데이터</h3>
         <p style="color: #666; margin-bottom: 15px;">다운로드가 차단된 경우, 아래 방법을 이용하세요:</p>
         <div style="margin: 20px 0;">
-            <button onclick="copyToClipboard('${csv.replace(/'/g, "\\'")}'); showStatus('클립보드에 복사되었습니다!', 'info');" 
+            <button onclick="copyToClipboard(\`${csv.replace(/`/g, '\\`')}\`); showStatus('클립보드에 복사되었습니다!', 'info'); this.parentElement.parentElement.parentElement.remove();" 
                     style="padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 8px; margin-right: 10px; cursor: pointer;">
                 📋 클립보드에 복사
             </button>
-            <button onclick="downloadAsDataURL('${csv.replace(/'/g, "\\'")}', '${filename}');" 
+            <button onclick="downloadAsDataURL(\`${csv.replace(/`/g, '\\`')}\`, '${filename}'); this.parentElement.parentElement.parentElement.remove();" 
                     style="padding: 12px 20px; background: #3498db; color: white; border: none; border-radius: 8px; margin-right: 10px; cursor: pointer;">
                 💾 강제 다운로드
             </button>
@@ -832,7 +834,7 @@ function showAlternativeDownload(csv, filename) {
         </div>
         <details>
             <summary style="cursor: pointer; color: #666;">📝 수동 복사 (클릭하여 펼치기)</summary>
-            <textarea readonly style="width: 100%; height: 200px; margin-top: 10px; font-family: monospace; font-size: 12px; border: 2px solid #dee2e6; border-radius: 5px; padding: 10px;">${csv}</textarea>
+            <textarea readonly style="width: 100%; height: 200px; margin-top: 10px; font-family: monospace; font-size: 12px; border: 2px solid #dee2e6; border-radius: 5px; padding: 10px;">${csv.slice(0, 2000)}${csv.length > 2000 ? '...(전체 데이터는 클립보드 복사 사용)' : ''}</textarea>
         </details>
     `;
     
@@ -848,17 +850,35 @@ function showAlternativeDownload(csv, filename) {
 
 // 클립보드 복사 함수
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        console.log('클립보드에 복사됨');
-    }).catch(() => {
-        // 폴백: 임시 텍스트 영역 생성
-        var textArea = document.createElement('textarea');
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.select();
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            console.log('클립보드에 복사됨');
+        }).catch(() => {
+            fallbackCopyToClipboard(text);
+        });
+    } else {
+        fallbackCopyToClipboard(text);
+    }
+}
+
+function fallbackCopyToClipboard(text) {
+    var textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
         document.execCommand('copy');
-        document.body.removeChild(textArea);
-    });
+        console.log('클립보드에 복사됨 (fallback)');
+    } catch (err) {
+        console.error('클립보드 복사 실패:', err);
+    }
+    
+    document.body.removeChild(textArea);
 }
 
 // 데이터 URL 다운로드
@@ -922,7 +942,7 @@ async function downloadAllAsZip(mergedData) {
     }
 }
 
-// 드래그 앤 드롭 이벤트 리스너
+// 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', function() {
     // 초기 모드 설정
     setSingleMode();
