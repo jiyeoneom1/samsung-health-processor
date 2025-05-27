@@ -1,4 +1,9 @@
-// Samsung Health Data Processor
+console.log(`📂 Processing ${filename}:`);
+                        console.log(`📊 Parsed columns:`, parsed.meta.fields);
+                        console.log(`📈 Total rows:`, parsed.data.length);
+                        if (parsed.data.length > 0) {
+                            console.log(`🔍 First row sample:`, parsed.data[0]);
+                        }// Samsung Health Data Processor
 // UX-Friendly JavaScript Implementation
 
 // Global State Management
@@ -177,22 +182,55 @@ const Utils = {
         });
     },
 
+    // Debug function to check timestamp values
+    debugTimestamp(timestamp, label = '') {
+        console.log(`🕐 Debug ${label}:`, {
+            original: timestamp,
+            type: typeof timestamp,
+            asNumber: parseInt(timestamp),
+            asDate: new Date(parseInt(timestamp)),
+            formatted: this.formatTimestamp(timestamp)
+        });
+    },
+
     // Format timestamp to readable date
     formatTimestamp(timestamp) {
         if (!timestamp) return '';
+        
+        // Debug log for troubleshooting
+        this.debugTimestamp(timestamp, 'formatTimestamp');
         
         // Handle different timestamp formats
         let date;
         
         if (typeof timestamp === 'number') {
-            // Unix timestamp - Samsung Health uses milliseconds
+            // Unix timestamp in milliseconds
             date = new Date(timestamp);
         } else if (typeof timestamp === 'string') {
-            // Check if it's a numeric string (timestamp)
             if (/^\d+$/.test(timestamp)) {
+                // Numeric string - try different interpretations
                 const num = parseInt(timestamp);
-                // Samsung Health timestamps are in milliseconds
-                date = new Date(num);
+                
+                // Test different timestamp formats
+                console.log('🔍 Testing timestamp formats:', {
+                    original: num,
+                    'as_milliseconds': new Date(num),
+                    'as_seconds': new Date(num * 1000),
+                    'current_year': new Date().getFullYear()
+                });
+                
+                // Check which format gives a reasonable year (2020-2030)
+                const asMs = new Date(num);
+                const asSec = new Date(num * 1000);
+                
+                if (asMs.getFullYear() >= 2020 && asMs.getFullYear() <= 2030) {
+                    date = asMs;
+                } else if (asSec.getFullYear() >= 2020 && asSec.getFullYear() <= 2030) {
+                    date = asSec;
+                } else {
+                    // Default to milliseconds
+                    date = asMs;
+                }
             } else {
                 // Try parsing as date string
                 date = new Date(timestamp);
@@ -205,6 +243,8 @@ const Utils = {
         if (isNaN(date.getTime())) {
             return timestamp; // Return original if can't parse
         }
+        
+        console.log('✅ Final parsed date:', date);
         
         // Format like Samsung Health: 2025-02-04 1:00:00 AM
         return date.toLocaleString('en-US', {
