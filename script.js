@@ -1,759 +1,931 @@
-// 전역 변수들
-const TARGET_COLUMNS = {
-    'heart_rate': [
-        'com.samsung.health.heart_rate.start_time',
-        'com.samsung.health.heart_rate.end_time',
-        'com.samsung.health.heart_rate.max',
-        'com.samsung.health.heart_rate.min',
-        'com.samsung.health.heart_rate.heart_rate'
-    ],
-    'stress': [
-        'start_time', 'end_time', 'max', 'min', 'score'
-    ],
-    'step_count': [
-        'com.samsung.health.step_count.start_time',
-        'com.samsung.health.step_count.end_time',
-        'com.samsung.health.step_count.count',
-        'com.samsung.health.step_count.calorie'
-    ],
-    'sleep': [
-        'com.samsung.health.sleep.start_time',
-        'com.samsung.health.sleep.end_time',
-        'sleep_score', 'sleep_duration', 'efficiency',
-        'total_rem_duration', 'total_light_duration', 'sleep_cycle'
-    ]
+// Samsung Health Data Processor
+// UX-Friendly JavaScript Implementation
+
+// Global State Management
+const AppState = {
+    currentMode: null,
+    selectedFiles: [],
+    nestedZipFiles: [],
+    currentNestedZip: null,
+    allProcessedData: {},
+    downloadableData: {},
+    isProcessing: false
 };
 
-const OUTPUT_COLUMNS = {
-    'heart_rate': ['start_time', 'end_time', 'max', 'min', 'heart_rate'],
-    'stress': ['start_time', 'end_time', 'max', 'min', 'score'],
-    'step_count': ['start_time', 'end_time', 'count', 'calorie'],
-    'sleep': ['start_time', 'end_time', 'sleep_score', 'sleep_duration', 'efficiency', 'total_rem_duration', 'total_light_duration', 'sleep_cycle']
+// Data Processing Configuration
+const DATA_CONFIG = {
+    TARGET_COLUMNS: {
+        'heart_rate': [
+            'com.samsung.health.heart_rate.start_time',
+            'com.samsung.health.heart_rate.end_time',
+            'com.samsung.health.heart_rate.max',
+            'com.samsung.health.heart_rate.min',
+            'com.samsung.health.heart_rate.heart_rate'
+        ],
+        'stress': [
+            'start_time', 'end_time', 'max', 'min', 'score'
+        ],
+        'step_count': [
+            'com.samsung.health.step_count.start_time',
+            'com.samsung.health.step_count.end_time',
+            'com.samsung.health.step_count.count',
+            'com.samsung.health.step_count.calorie'
+        ],
+        'sleep': [
+            'com.samsung.health.sleep.start_time',
+            'com.samsung.health.sleep.end_time',
+            'sleep_score', 'sleep_duration', 'efficiency',
+            'total_rem_duration', 'total_light_duration', 'sleep_cycle'
+        ]
+    },
+    OUTPUT_COLUMNS: {
+        'heart_rate': ['start_time', 'end_time', 'max', 'min', 'heart_rate'],
+        'stress': ['start_time', 'end_time', 'max', 'min', 'score'],
+        'step_count': ['start_time', 'end_time', 'count', 'calorie'],
+        'sleep': ['start_time', 'end_time', 'sleep_score', 'sleep_duration', 'efficiency', 'total_rem_duration', 'total_light_duration', 'sleep_cycle']
+    }
 };
 
-let selectedFiles = [];
-let nestedZipFiles = [];
-let currentNestedZip = null;
-let currentMode = null;
-let allProcessedData = {};
-let downloadableData = {};
-
-// DOM 요소들
-const fileInput = document.getElementById('fileInput');
-const multiFileInput = document.getElementById('multiFileInput');
-const nestedFileInput = document.getElementById('nestedFileInput');
-const singleMode = document.getElementById('singleMode');
-const multiMode = document.getElementById('multiMode');
-const nestedMode = document.getElementById('nestedMode');
-const selectedFilesDiv = document.getElementById('selectedFiles');
-const fileList = document.getElementById('fileList');
-const nestedFileStructure = document.getElementById('nestedFileStructure');
-const nestedFileList = document.getElementById('nestedFileList');
-const processingMode = document.getElementById('processingMode');
-const progressContainer = document.querySelector('.progress-container');
-const progressFill = document.querySelector('.progress-fill');
-const progressText = document.getElementById('progressText');
-const status = document.getElementById('status');
-const results = document.getElementById('results');
-const fileResults = document.getElementById('fileResults');
-const downloadSection = document.getElementById('downloadSection');
-const bulkDownload = document.getElementById('bulkDownload');
-
-// 모드 설정 함수들
-function setSingleMode() {
-    currentMode = 'single';
-    singleMode.style.display = 'block';
-    multiMode.style.display = 'none';
-    nestedMode.style.display = 'none';
-    processingMode.style.display = 'none';
-    updateModeButtons(0);
-    clearResults();
-}
-
-function setMultiMode() {
-    currentMode = 'multi';
-    singleMode.style.display = 'none';
-    multiMode.style.display = 'block';
-    nestedMode.style.display = 'none';
-    processingMode.style.display = 'block';
-    updateModeButtons(1);
-    clearResults();
-}
-
-function setNestedMode() {
-    currentMode = 'nested';
-    singleMode.style.display = 'none';
-    multiMode.style.display = 'none';
-    nestedMode.style.display = 'block';
-    processingMode.style.display = 'block';
-    updateModeButtons(2);
-    clearResults();
-}
-
-function updateModeButtons(activeIndex) {
-    const modes = document.querySelectorAll('.upload-mode');
-    modes.forEach((mode, index) => {
-        if (index === activeIndex) {
-            mode.classList.add('active');
-        } else {
-            mode.classList.remove('active');
-        }
-    });
-}
-
-function clearResults() {
-    results.style.display = 'none';
-    fileResults.innerHTML = '';
-    downloadSection.style.display = 'none';
-    allProcessedData = {};
-    downloadableData = {};
-    status.innerHTML = '';
-}
-
-// 이벤트 리스너들
-fileInput.addEventListener('change', function(e) {
-    if (e.target.files.length > 0) {
-        handleSingleFile(e.target.files[0]);
-    }
-});
-
-multiFileInput.addEventListener('change', function(e) {
-    for (let i = 0; i < e.target.files.length; i++) {
-        addFile(e.target.files[i]);
-    }
-    updateFileList();
-});
-
-nestedFileInput.addEventListener('change', function(e) {
-    if (e.target.files.length > 0) {
-        handleNestedFile(e.target.files[0]);
-    }
-});
-
-// 파일 관리 함수들
-function addFile(file) {
-    if (!file.name.toLowerCase().endsWith('.zip')) {
-        showStatus('ZIP 파일만 업로드 가능합니다: ' + file.name, 'error');
-        return;
-    }
+// DOM Elements Cache
+const Elements = {
+    // Sections
+    modeSelection: document.getElementById('modeSelection'),
+    uploadSection: document.getElementById('uploadSection'),
+    progressSection: document.getElementById('progressSection'),
+    statusSection: document.getElementById('statusSection'),
+    resultsSection: document.getElementById('resultsSection'),
     
-    const exists = selectedFiles.some(f => f.name === file.name && f.size === file.size);
-    if (exists) {
-        showStatus('이미 추가된 파일입니다: ' + file.name, 'warning');
-        return;
-    }
+    // Mode-specific upload areas
+    singleMode: document.getElementById('singleMode'),
+    multiMode: document.getElementById('multiMode'),
+    nestedMode: document.getElementById('nestedMode'),
     
-    selectedFiles.push(file);
-}
-
-function removeFile(index) {
-    selectedFiles.splice(index, 1);
-    updateFileList();
-}
-
-function clearFiles() {
-    selectedFiles = [];
-    updateFileList();
-}
-
-function clearNestedFiles() {
-    nestedZipFiles = [];
-    currentNestedZip = null;
-    nestedFileStructure.style.display = 'none';
-    nestedFileInput.value = '';
-}
-
-function updateFileList() {
-    if (selectedFiles.length === 0) {
-        selectedFilesDiv.style.display = 'none';
-        return;
-    }
+    // File inputs
+    fileInput: document.getElementById('fileInput'),
+    multiFileInput: document.getElementById('multiFileInput'),
+    nestedFileInput: document.getElementById('nestedFileInput'),
     
-    selectedFilesDiv.style.display = 'block';
-    fileList.innerHTML = '';
+    // File lists
+    selectedFiles: document.getElementById('selectedFiles'),
+    fileList: document.getElementById('fileList'),
+    nestedFileStructure: document.getElementById('nestedFileStructure'),
+    nestedFileList: document.getElementById('nestedFileList'),
     
-    selectedFiles.forEach((file, index) => {
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item';
-        fileItem.innerHTML = `
-            <span class="file-name">📁 ${file.name}</span>
-            <span class="file-size">${(file.size / 1024 / 1024).toFixed(1)}MB</span>
-            <button class="remove-file" onclick="removeFile(${index})">❌</button>
+    // Progress elements
+    progressFill: document.getElementById('progressFill'),
+    progressText: document.getElementById('progressText'),
+    
+    // Processing options
+    processingOptions: document.getElementById('processingOptions'),
+    
+    // Results
+    resultsContainer: document.getElementById('resultsContainer'),
+    bulkDownloadSection: document.getElementById('bulkDownloadSection'),
+    bulkDownloadContainer: document.getElementById('bulkDownloadContainer'),
+    
+    // Modal
+    modal: document.getElementById('modal'),
+    modalTitle: document.getElementById('modalTitle'),
+    modalBody: document.getElementById('modalBody'),
+    
+    // Toast container
+    toastContainer: document.getElementById('toastContainer')
+};
+
+// Utility Functions
+const Utils = {
+    // Show toast notification
+    showToast(message, type = 'info', duration = 5000) {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span>${message}</span>
+                <button onclick="this.parentElement.parentElement.remove()" 
+                        style="background: none; border: none; font-size: 18px; cursor: pointer; margin-left: 10px;">&times;</button>
+            </div>
         `;
-        fileList.appendChild(fileItem);
-    });
-}
+        
+        Elements.toastContainer.appendChild(toast);
+        
+        // Auto remove after duration
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.remove();
+            }
+        }, duration);
+    },
 
-// 유틸리티 함수들
-function showStatus(message, type = 'info') {
-    status.innerHTML = `<div class="status ${type}">${message}</div>`;
-}
+    // Update progress bar
+    updateProgress(percentage, text) {
+        Elements.progressFill.style.width = `${percentage}%`;
+        Elements.progressText.textContent = text;
+        
+        // Update percentage display
+        const percentageEl = document.querySelector('.progress-percentage');
+        if (percentageEl) {
+            percentageEl.textContent = `${Math.round(percentage)}%`;
+        }
+    },
 
-function updateProgress(percent, text) {
-    progressFill.style.width = percent + '%';
-    progressText.textContent = text;
-}
+    // Show/hide sections with animation
+    showSection(element, show = true) {
+        if (show) {
+            element.style.display = 'block';
+            element.classList.add('fade-in');
+        } else {
+            element.style.display = 'none';
+            element.classList.remove('fade-in');
+        }
+    },
 
-function showProgress() {
-    progressContainer.style.display = 'block';
-    updateProgress(0, '처리 시작...');
-}
+    // Extract file identifier from filename
+    getFileIdentifier(filename) {
+        const match = filename.match(/([A-Z0-9]+)\.zip$/i);
+        return match ? match[1] : filename.replace('.zip', '');
+    },
 
-function hideProgress() {
-    progressContainer.style.display = 'none';
-}
+    // Get data type from pattern
+    getDataType(pattern) {
+        if (pattern.includes('heart_rate')) return 'heart_rate';
+        if (pattern.includes('stress')) return 'stress';
+        if (pattern.includes('pedometer_step_count')) return 'step_count';
+        if (pattern.includes('sleep')) return 'sleep';
+        return 'unknown';
+    },
 
-function getDataType(pattern) {
-    if (pattern.includes('heart_rate')) return 'heart_rate';
-    if (pattern.includes('stress')) return 'stress';
-    if (pattern.includes('pedometer_step_count')) return 'step_count';
-    if (pattern.includes('sleep')) return 'sleep';
-    return 'unknown';
-}
+    // Format file size
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    },
 
-function getFileIdentifier(filename) {
-    const match = filename.match(/([A-Z0-9]+)\.zip$/i);
-    return match ? match[1] : filename.replace('.zip', '');
-}
-
-// 중첩 ZIP 파일 처리
-async function handleNestedFile(file) {
-    if (!file.name.toLowerCase().endsWith('.zip')) {
-        showStatus('ZIP 파일만 업로드 가능합니다.', 'error');
-        return;
+    // Format number with commas
+    formatNumber(num) {
+        return num.toLocaleString();
     }
+};
 
-    showProgress();
-    showStatus('중첩 ZIP 파일을 분석하고 있습니다...', 'info');
+// Mode Management
+const ModeManager = {
+    init() {
+        // Add click handlers to mode cards
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const mode = card.dataset.mode;
+                this.selectMode(mode);
+            });
+        });
 
-    try {
+        // Add upload button handlers
+        document.getElementById('singleUpload').addEventListener('click', () => {
+            Elements.fileInput.click();
+        });
+        document.getElementById('multiUpload').addEventListener('click', () => {
+            Elements.multiFileInput.click();
+        });
+        document.getElementById('nestedUpload').addEventListener('click', () => {
+            Elements.nestedFileInput.click();
+        });
+    },
+
+    selectMode(mode) {
+        AppState.currentMode = mode;
+        
+        // Update mode card active state
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.classList.toggle('active', card.dataset.mode === mode);
+        });
+
+        // Show upload section
+        Utils.showSection(Elements.modeSelection, false);
+        Utils.showSection(Elements.uploadSection, true);
+
+        // Show appropriate upload mode
+        Utils.showSection(Elements.singleMode, mode === 'single');
+        Utils.showSection(Elements.multiMode, mode === 'multi');
+        Utils.showSection(Elements.nestedMode, mode === 'nested');
+
+        // Show processing options for multi/nested modes
+        Utils.showSection(Elements.processingOptions, mode !== 'single');
+
+        // Clear previous results
+        this.clearResults();
+
+        Utils.showToast(`${this.getModeDisplayName(mode)} 모드가 선택되었습니다.`, 'info');
+    },
+
+    getModeDisplayName(mode) {
+        const names = {
+            single: '단일 ZIP 파일',
+            multi: '다중 ZIP 파일',
+            nested: '중첩 ZIP 파일'
+        };
+        return names[mode] || mode;
+    },
+
+    clearResults() {
+        AppState.allProcessedData = {};
+        AppState.downloadableData = {};
+        Utils.showSection(Elements.resultsSection, false);
+        Elements.statusSection.innerHTML = '';
+    }
+};
+
+// File Management
+const FileManager = {
+    init() {
+        // File input event listeners
+        Elements.fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleSingleFile(e.target.files[0]);
+            }
+        });
+
+        Elements.multiFileInput.addEventListener('change', (e) => {
+            for (let i = 0; i < e.target.files.length; i++) {
+                this.addFile(e.target.files[i]);
+            }
+            this.updateFileList();
+        });
+
+        Elements.nestedFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleNestedFile(e.target.files[0]);
+            }
+        });
+
+        // Drag and drop event listeners
+        this.initDragAndDrop();
+    },
+
+    initDragAndDrop() {
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            
+            const files = e.dataTransfer.files;
+            const uploadArea = e.target.closest('.upload-area');
+            
+            if (!uploadArea || files.length === 0) return;
+
+            if (AppState.currentMode === 'single' && uploadArea.closest('#singleMode')) {
+                this.handleSingleFile(files[0]);
+            } else if (AppState.currentMode === 'multi' && uploadArea.closest('#multiMode')) {
+                for (let i = 0; i < files.length; i++) {
+                    this.addFile(files[i]);
+                }
+                this.updateFileList();
+            } else if (AppState.currentMode === 'nested' && uploadArea.closest('#nestedMode')) {
+                this.handleNestedFile(files[0]);
+            }
+        });
+
+        // Visual feedback for drag and drop
+        document.querySelectorAll('.upload-area').forEach(area => {
+            area.addEventListener('dragenter', () => {
+                area.classList.add('dragover');
+            });
+
+            area.addEventListener('dragleave', (e) => {
+                if (!area.contains(e.relatedTarget)) {
+                    area.classList.remove('dragover');
+                }
+            });
+
+            area.addEventListener('drop', () => {
+                area.classList.remove('dragover');
+            });
+        });
+    },
+
+    validateFile(file) {
+        if (!file.name.toLowerCase().endsWith('.zip')) {
+            Utils.showToast('ZIP 파일만 업로드 가능합니다.', 'error');
+            return false;
+        }
+        
+        // File size check (100MB limit)
+        if (file.size > 100 * 1024 * 1024) {
+            Utils.showToast('파일 크기가 너무 큽니다. (최대 100MB)', 'error');
+            return false;
+        }
+        
+        return true;
+    },
+
+    addFile(file) {
+        if (!this.validateFile(file)) return;
+        
+        // Check for duplicates
+        const exists = AppState.selectedFiles.some(f => 
+            f.name === file.name && f.size === file.size
+        );
+        
+        if (exists) {
+            Utils.showToast(`이미 추가된 파일입니다: ${file.name}`, 'warning');
+            return;
+        }
+        
+        AppState.selectedFiles.push(file);
+        Utils.showToast(`파일이 추가되었습니다: ${file.name}`, 'info');
+    },
+
+    removeFile(index) {
+        const removedFile = AppState.selectedFiles.splice(index, 1)[0];
+        this.updateFileList();
+        Utils.showToast(`파일이 제거되었습니다: ${removedFile.name}`, 'info');
+    },
+
+    updateFileList() {
+        if (AppState.selectedFiles.length === 0) {
+            Utils.showSection(Elements.selectedFiles, false);
+            return;
+        }
+        
+        Utils.showSection(Elements.selectedFiles, true);
+        Elements.fileList.innerHTML = '';
+        
+        AppState.selectedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <span class="file-name">📁 ${file.name}</span>
+                <span class="file-size">${Utils.formatFileSize(file.size)}</span>
+                <button class="remove-file" onclick="FileManager.removeFile(${index})">❌</button>
+            `;
+            Elements.fileList.appendChild(fileItem);
+        });
+    },
+
+    async handleSingleFile(file) {
+        if (!this.validateFile(file)) return;
+        
+        Utils.showSection(Elements.progressSection, true);
+        Utils.updateProgress(0, '파일 처리를 시작합니다...');
+        
+        try {
+            const fileId = Utils.getFileIdentifier(file.name);
+            const data = await DataProcessor.processZipFile(file, fileId);
+            
+            AppState.allProcessedData = { [fileId]: data };
+            ResultsManager.displaySingleResults(AppState.allProcessedData);
+            
+            Utils.updateProgress(100, '처리 완료!');
+            Utils.showToast('파일 처리가 완료되었습니다!', 'info');
+            
+        } catch (error) {
+            console.error('파일 처리 오류:', error);
+            Utils.showToast(`파일 처리 중 오류가 발생했습니다: ${error.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                Utils.showSection(Elements.progressSection, false);
+            }, 2000);
+        }
+    },
+
+    async handleNestedFile(file) {
+        if (!this.validateFile(file)) return;
+        
+        Utils.showSection(Elements.progressSection, true);
+        Utils.updateProgress(0, '중첩 ZIP 파일을 분석합니다...');
+        
+        try {
+            const zip = await JSZip.loadAsync(file);
+            Utils.updateProgress(30, 'ZIP 구조 분석 중...');
+            
+            AppState.nestedZipFiles = [];
+            AppState.currentNestedZip = zip;
+            
+            // Find internal ZIP files
+            Object.keys(zip.files).forEach(filename => {
+                if (filename.toLowerCase().endsWith('.zip') && !zip.files[filename].dir) {
+                    const fileId = Utils.getFileIdentifier(filename);
+                    AppState.nestedZipFiles.push({
+                        filename,
+                        fileId,
+                        size: zip.files[filename]._data?.uncompressedSize || 'Unknown'
+                    });
+                }
+            });
+            
+            Utils.updateProgress(60, '내부 ZIP 파일 목록 생성 중...');
+            
+            if (AppState.nestedZipFiles.length === 0) {
+                Utils.showToast('내부에 ZIP 파일이 발견되지 않았습니다.', 'warning');
+                return;
+            }
+            
+            this.updateNestedFileList();
+            Utils.updateProgress(100, '완료!');
+            Utils.showToast(`${AppState.nestedZipFiles.length}개의 내부 ZIP 파일을 발견했습니다!`, 'info');
+            
+        } catch (error) {
+            console.error('중첩 파일 처리 오류:', error);
+            Utils.showToast(`중첩 파일 처리 중 오류가 발생했습니다: ${error.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                Utils.showSection(Elements.progressSection, false);
+            }, 1000);
+        }
+    },
+
+    updateNestedFileList() {
+        Utils.showSection(Elements.nestedFileStructure, true);
+        Elements.nestedFileList.innerHTML = '';
+        
+        AppState.nestedZipFiles.forEach(fileInfo => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <span class="file-name">🗜️ ${fileInfo.filename}</span>
+                <span class="file-size">ID: ${fileInfo.fileId}</span>
+                <span class="file-size">${typeof fileInfo.size === 'number' ? Utils.formatFileSize(fileInfo.size) : fileInfo.size}</span>
+            `;
+            Elements.nestedFileList.appendChild(fileItem);
+        });
+    }
+};
+
+// Data Processing Engine
+const DataProcessor = {
+    async processZipFile(file, fileId) {
         const zip = await JSZip.loadAsync(file);
-        updateProgress(30, 'ZIP 구조 분석 중...');
+        
+        // Find CSV files
+        const csvFiles = {};
+        const targetPatterns = [
+            'com.samsung.shealth.tracker.heart_rate',
+            'com.samsung.shealth.stress', 
+            'com.samsung.shealth.tracker.pedometer_step_count',
+            'com.samsung.shealth.sleep'
+        ];
 
-        nestedZipFiles = [];
-        currentNestedZip = zip;
-
-        Object.keys(zip.files).forEach(function(filename) {
-            if (filename.toLowerCase().endsWith('.zip') && !zip.files[filename].dir) {
-                const fileId = getFileIdentifier(filename);
-                nestedZipFiles.push({
-                    filename: filename,
-                    fileId: fileId,
-                    size: zip.files[filename]._data ? zip.files[filename]._data.uncompressedSize : 'Unknown'
+        Object.keys(zip.files).forEach(filename => {
+            if (filename.endsWith('.csv')) {
+                targetPatterns.forEach(pattern => {
+                    if (filename.includes(pattern)) {
+                        const type = Utils.getDataType(pattern);
+                        if (!csvFiles[type]) csvFiles[type] = [];
+                        csvFiles[type].push(filename);
+                    }
                 });
             }
         });
-
-        updateProgress(60, '내부 ZIP 파일 목록 생성 중...');
         
-        if (nestedZipFiles.length === 0) {
-            hideProgress();
-            showStatus('내부에 ZIP 파일이 발견되지 않았습니다. 일반 ZIP 파일로 처리해보세요.', 'warning');
-            return;
-        }
+        const processedData = {};
 
-        updateNestedFileList();
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 1000);
-        
-        showStatus(`${nestedZipFiles.length}개의 내부 ZIP 파일을 발견했습니다!`, 'info');
-
-    } catch (error) {
-        console.error('중첩 ZIP 처리 중 오류:', error);
-        hideProgress();
-        showStatus('오류가 발생했습니다: ' + error.message, 'error');
-    }
-}
-
-function updateNestedFileList() {
-    nestedFileStructure.style.display = 'block';
-    nestedFileList.innerHTML = '';
-    
-    nestedZipFiles.forEach((fileInfo, index) => {
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item';
-        fileItem.innerHTML = `
-            <span class="file-name">🗜️ ${fileInfo.filename}</span>
-            <span class="file-size">ID: ${fileInfo.fileId}</span>
-            <span class="file-size">${typeof fileInfo.size === 'number' ? (fileInfo.size / 1024).toFixed(1) + 'KB' : fileInfo.size}</span>
-        `;
-        nestedFileList.appendChild(fileItem);
-    });
-}
-
-// 중첩 파일들 처리
-async function processNestedFiles() {
-    if (nestedZipFiles.length === 0 || !currentNestedZip) {
-        showStatus('처리할 내부 ZIP 파일이 없습니다.', 'warning');
-        return;
-    }
-
-    showProgress();
-    showStatus('내부 ZIP 파일들을 처리하고 있습니다...', 'info');
-
-    try {
-        allProcessedData = {};
-        
-        for (let i = 0; i < nestedZipFiles.length; i++) {
-            const fileInfo = nestedZipFiles[i];
+        // Process each data type
+        for (const dataType in csvFiles) {
+            const filenames = csvFiles[dataType];
+            if (filenames.length === 0) continue;
             
-            updateProgress((i / nestedZipFiles.length) * 80, `${fileInfo.filename} 처리 중... (${i + 1}/${nestedZipFiles.length})`);
+            let allRows = [];
             
-            const innerZipBlob = await currentNestedZip.files[fileInfo.filename].async('blob');
-            const innerZipFile = new File([innerZipBlob], fileInfo.filename, { type: 'application/zip' });
-            
-            const data = await processZipFile(innerZipFile, fileInfo.fileId);
-            allProcessedData[fileInfo.fileId] = data;
-        }
-
-        updateProgress(90, '결과 생성 중...');
-        
-        const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
-        displayMultiResults(allProcessedData, mergeMode);
-        
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 2000);
-        showStatus(`${nestedZipFiles.length}개 내부 파일 처리가 완료되었습니다!`, 'info');
-
-    } catch (error) {
-        console.error('중첩 파일 처리 중 오류:', error);
-        hideProgress();
-        showStatus('오류가 발생했습니다: ' + error.message, 'error');
-    }
-}
-
-// 단일 파일 처리
-async function handleSingleFile(file) {
-    showProgress();
-    showStatus('ZIP 파일을 분석하고 있습니다...', 'info');
-
-    try {
-        const fileId = getFileIdentifier(file.name);
-        const data = await processZipFile(file, fileId);
-        displayResults({[fileId]: data});
-        
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 2000);
-        showStatus('데이터 처리가 완료되었습니다!', 'info');
-
-    } catch (error) {
-        console.error('처리 중 오류:', error);
-        hideProgress();
-        showStatus('오류가 발생했습니다: ' + error.message, 'error');
-    }
-}
-
-// 다중 파일 처리
-async function processMultipleFiles() {
-    if (selectedFiles.length === 0) {
-        showStatus('처리할 파일을 선택해주세요.', 'warning');
-        return;
-    }
-
-    showProgress();
-    showStatus('여러 ZIP 파일을 처리하고 있습니다...', 'info');
-
-    try {
-        allProcessedData = {};
-        
-        for (let i = 0; i < selectedFiles.length; i++) {
-            const file = selectedFiles[i];
-            const fileId = getFileIdentifier(file.name);
-            
-            updateProgress((i / selectedFiles.length) * 80, `${file.name} 처리 중... (${i + 1}/${selectedFiles.length})`);
-            
-            const data = await processZipFile(file, fileId);
-            allProcessedData[fileId] = data;
-        }
-
-        updateProgress(90, '결과 생성 중...');
-        
-        const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
-        displayMultiResults(allProcessedData, mergeMode);
-        
-        updateProgress(100, '완료!');
-        setTimeout(hideProgress, 2000);
-        showStatus(`${selectedFiles.length}개 파일 처리가 완료되었습니다!`, 'info');
-
-    } catch (error) {
-        console.error('처리 중 오류:', error);
-        hideProgress();
-        showStatus('오류가 발생했습니다: ' + error.message, 'error');
-    }
-}
-
-// ZIP 파일 처리 핵심 함수
-async function processZipFile(file, fileId) {
-    const zip = await JSZip.loadAsync(file);
-    
-    var csvFiles = {};
-    var targetPatterns = [
-        'com.samsung.shealth.tracker.heart_rate',
-        'com.samsung.shealth.stress', 
-        'com.samsung.shealth.tracker.pedometer_step_count',
-        'com.samsung.shealth.sleep'
-    ];
-
-    Object.keys(zip.files).forEach(function(filename) {
-        if (filename.endsWith('.csv')) {
-            targetPatterns.forEach(function(pattern) {
-                if (filename.includes(pattern)) {
-                    var type = getDataType(pattern);
-                    if (!csvFiles[type]) csvFiles[type] = [];
-                    csvFiles[type].push(filename);
-                }
-            });
-        }
-    });
-    
-    var processedData = {};
-
-    for (var dataType in csvFiles) {
-        var filenames = csvFiles[dataType];
-        if (filenames.length === 0) continue;
-        
-        var allRows = [];
-        
-        for (var f = 0; f < filenames.length; f++) {
-            var filename = filenames[f];
-            var csvContent = await zip.files[filename].async('text');
-            
-            var lines = csvContent.split('\n');
-            var dataLines = lines.slice(1);
-            var cleanedCsv = dataLines.join('\n');
-            
-            var parsed = Papa.parse(cleanedCsv, {
-                header: true,
-                dynamicTyping: true,
-                skipEmptyLines: true,
-                delimiter: ',',
-                quoteChar: '"'
-            });
-            
-            var filteredRows = [];
-            for (var r = 0; r < parsed.data.length; r++) {
-                var row = parsed.data[r];
-                var filteredRow = {};
-                var hasValidData = false;
+            // Merge files of the same type
+            for (const filename of filenames) {
+                const csvContent = await zip.files[filename].async('text');
                 
-                for (var c = 0; c < TARGET_COLUMNS[dataType].length; c++) {
-                    var col = TARGET_COLUMNS[dataType][c];
-                    var outputCol = OUTPUT_COLUMNS[dataType][c];
-                    var value = row[col] || '';
-                    filteredRow[outputCol] = value;
-                    if (value !== '' && value !== null && value !== undefined) {
-                        hasValidData = true;
+                // Remove first line (file info)
+                const lines = csvContent.split('\n');
+                const dataLines = lines.slice(1);
+                const cleanedCsv = dataLines.join('\n');
+                
+                const parsed = Papa.parse(cleanedCsv, {
+                    header: true,
+                    dynamicTyping: true,
+                    skipEmptyLines: true,
+                    delimiter: ',',
+                    quoteChar: '"'
+                });
+                
+                // Extract required columns
+                const filteredRows = [];
+                for (const row of parsed.data) {
+                    const filteredRow = {};
+                    let hasValidData = false;
+                    
+                    for (let i = 0; i < DATA_CONFIG.TARGET_COLUMNS[dataType].length; i++) {
+                        const col = DATA_CONFIG.TARGET_COLUMNS[dataType][i];
+                        const outputCol = DATA_CONFIG.OUTPUT_COLUMNS[dataType][i];
+                        const value = row[col] || '';
+                        filteredRow[outputCol] = value;
+                        if (value !== '' && value !== null && value !== undefined) {
+                            hasValidData = true;
+                        }
+                    }
+                    
+                    if (hasValidData) {
+                        filteredRow.source_file = fileId;
+                        filteredRows.push(filteredRow);
                     }
                 }
                 
-                if (hasValidData) {
-                    filteredRow.source_file = fileId;
-                    filteredRows.push(filteredRow);
+                allRows = allRows.concat(filteredRows);
+            }
+            
+            // Sort by time
+            allRows.sort((a, b) => {
+                const timeA = new Date(a.start_time);
+                const timeB = new Date(b.start_time);
+                return timeA - timeB;
+            });
+            
+            processedData[dataType] = {
+                data: allRows,
+                fileId: fileId
+            };
+        }
+
+        return processedData;
+    },
+
+    mergeAllData(allData) {
+        const merged = {};
+        
+        for (const fileId in allData) {
+            const fileData = allData[fileId];
+            
+            for (const dataType in fileData) {
+                if (!merged[dataType]) {
+                    merged[dataType] = [];
+                }
+                merged[dataType] = merged[dataType].concat(fileData[dataType].data);
+            }
+        }
+        
+        // Sort each type by time
+        for (const dataType in merged) {
+            merged[dataType].sort((a, b) => {
+                const timeA = new Date(a.start_time);
+                const timeB = new Date(b.start_time);
+                return timeA - timeB;
+            });
+        }
+        
+        return merged;
+    },
+
+    createUnifiedData(allData) {
+        const unifiedData = [];
+        
+        for (const fileId in allData) {
+            const fileData = allData[fileId];
+            
+            for (const dataType in fileData) {
+                const data = fileData[dataType].data;
+                
+                data.forEach(row => {
+                    const unifiedRow = {
+                        data_type: dataType,
+                        source_file: row.source_file || fileId,
+                        start_time: row.start_time || '',
+                        end_time: row.end_time || '',
+                        value1: row.heart_rate || row.score || row.count || row.sleep_score || '',
+                        value2: row.max || row.calorie || row.sleep_duration || '',
+                        value3: row.min || row.efficiency || '',
+                        value4: row.total_rem_duration || '',
+                        value5: row.total_light_duration || '',
+                        value6: row.sleep_cycle || '',
+                        raw_data: JSON.stringify(row)
+                    };
+                    unifiedData.push(unifiedRow);
+                });
+            }
+        }
+        
+        // Sort by time
+        unifiedData.sort((a, b) => {
+            const timeA = new Date(a.start_time);
+            const timeB = new Date(b.start_time);
+            return timeA - timeB;
+        });
+        
+        return unifiedData;
+    }
+};
+
+// Results Management
+const ResultsManager = {
+    displaySingleResults(allData) {
+        Elements.resultsContainer.innerHTML = '';
+        
+        for (const fileId in allData) {
+            const fileData = allData[fileId];
+            
+            for (const dataType in fileData) {
+                const result = fileData[dataType];
+                this.createDataCard(dataType, result.data, fileId);
+            }
+        }
+        
+        Utils.showSection(Elements.resultsSection, true);
+    },
+
+    displayMultiResults(allData, mergeMode) {
+        Elements.resultsContainer.innerHTML = '';
+        
+        if (mergeMode === 'separate' || mergeMode === 'both') {
+            // Display separated files
+            for (const fileId in allData) {
+                const fileData = allData[fileId];
+                
+                const fileSection = document.createElement('div');
+                fileSection.innerHTML = `<h3 style="color: var(--gray-700); border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; margin: 20px 0;">📁 ${fileId} 파일</h3>`;
+                Elements.resultsContainer.appendChild(fileSection);
+                
+                for (const dataType in fileData) {
+                    const result = fileData[dataType];
+                    this.createDataCard(dataType, result.data, fileId);
                 }
             }
-            
-            allRows = allRows.concat(filteredRows);
         }
         
-        allRows.sort(function(a, b) {
-            var timeA = new Date(a.start_time);
-            var timeB = new Date(b.start_time);
-            return timeA - timeB;
-        });
-        
-        processedData[dataType] = {
-            data: allRows,
-            fileId: fileId
-        };
-    }
-
-    return processedData;
-}
-
-// 단일 결과 표시
-function displayResults(allData) {
-    fileResults.innerHTML = '';
-    
-    for (var fileId in allData) {
-        var fileData = allData[fileId];
-        
-        for (var dataType in fileData) {
-            var result = fileData[dataType];
-            var data = result.data;
-            createDataCard(dataType, data, fileId);
-        }
-    }
-    
-    results.style.display = 'block';
-}
-
-// 다중 결과 표시
-function displayMultiResults(allData, mergeMode) {
-    fileResults.innerHTML = '';
-    
-    if (mergeMode === 'separate' || mergeMode === 'both') {
-        for (var fileId in allData) {
-            var fileData = allData[fileId];
+        if (mergeMode === 'merge' || mergeMode === 'both') {
+            // Display merged data (by type)
+            const mergedData = DataProcessor.mergeAllData(allData);
             
-            const fileSection = document.createElement('div');
-            fileSection.innerHTML = `<h3 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">📁 ${fileId} 파일</h3>`;
-            fileResults.appendChild(fileSection);
-            
-            for (var dataType in fileData) {
-                var result = fileData[dataType];
-                var data = result.data;
-                createDataCard(dataType, data, fileId);
+            if (mergeMode === 'both') {
+                const mergeSection = document.createElement('div');
+                mergeSection.innerHTML = `<h3 style="color: var(--gray-700); border-bottom: 2px solid var(--secondary-color); padding-bottom: 10px; margin: 20px 0;">🔗 데이터 타입별 병합</h3>`;
+                Elements.resultsContainer.appendChild(mergeSection);
             }
-        }
-    }
-    
-    if (mergeMode === 'merge' || mergeMode === 'both') {
-        const mergedData = mergeAllData(allData);
-        
-        if (mergeMode === 'both') {
-            const mergeSection = document.createElement('div');
-            mergeSection.innerHTML = `<h3 style="color: #2c3e50; border-bottom: 2px solid #27ae60; padding-bottom: 10px;">🔗 데이터 타입별 병합</h3>`;
-            fileResults.appendChild(mergeSection);
-        }
-        
-        for (var dataType in mergedData) {
-            var data = mergedData[dataType];
-            createDataCard(dataType, data, 'merged_all');
-        }
-        
-        createBulkDownloadSection(mergedData);
-    }
-    
-    if (mergeMode === 'unified' || mergeMode === 'both') {
-        const unifiedData = createUnifiedData(allData);
-        
-        if (mergeMode === 'both') {
-            const unifiedSection = document.createElement('div');
-            unifiedSection.innerHTML = `<h3 style="color: #2c3e50; border-bottom: 2px solid #9b59b6; padding-bottom: 10px;">🎯 전체 통합 데이터</h3>`;
-            fileResults.appendChild(unifiedSection);
-        }
-        
-        createDataCard('unified', unifiedData, 'all_types');
-        
-        const unifiedDownloadBtn = document.createElement('button');
-        unifiedDownloadBtn.className = 'btn download-btn';
-        unifiedDownloadBtn.style.margin = '20px auto';
-        unifiedDownloadBtn.style.display = 'block';
-        unifiedDownloadBtn.innerHTML = '📊 all_types_unified.csv 다운로드 (' + unifiedData.length.toLocaleString() + '행)';
-        unifiedDownloadBtn.onclick = function() { 
-            downloadableData['all_types_unified'] = unifiedData;
-            downloadCSVSafe('unified', 'all_types'); 
-        };
-        fileResults.appendChild(unifiedDownloadBtn);
-    }
-    
-    results.style.display = 'block';
-}
-
-// 모든 데이터 병합
-function mergeAllData(allData) {
-    var merged = {};
-    
-    for (var fileId in allData) {
-        var fileData = allData[fileId];
-        
-        for (var dataType in fileData) {
-            if (!merged[dataType]) {
-                merged[dataType] = [];
-            }
-            merged[dataType] = merged[dataType].concat(fileData[dataType].data);
-        }
-    }
-    
-    for (var dataType in merged) {
-        merged[dataType].sort(function(a, b) {
-            var timeA = new Date(a.start_time);
-            var timeB = new Date(b.start_time);
-            return timeA - timeB;
-        });
-    }
-    
-    return merged;
-}
-
-// 모든 타입을 하나의 통합 데이터로 생성
-function createUnifiedData(allData) {
-    var unifiedData = [];
-    
-    for (var fileId in allData) {
-        var fileData = allData[fileId];
-        
-        for (var dataType in fileData) {
-            var data = fileData[dataType].data;
             
-            data.forEach(function(row) {
-                var unifiedRow = {
-                    data_type: dataType,
-                    source_file: row.source_file || fileId,
-                    start_time: row.start_time || '',
-                    end_time: row.end_time || '',
-                    value1: row.heart_rate || row.score || row.count || row.sleep_score || '',
-                    value2: row.max || row.calorie || row.sleep_duration || '',
-                    value3: row.min || row.efficiency || '',
-                    value4: row.total_rem_duration || '',
-                    value5: row.total_light_duration || '',
-                    value6: row.sleep_cycle || '',
-                    raw_data: JSON.stringify(row)
-                };
-                unifiedData.push(unifiedRow);
-            });
+            for (const dataType in mergedData) {
+                const data = mergedData[dataType];
+                this.createDataCard(dataType, data, 'merged_all');
+            }
+            
+            this.createBulkDownloadSection(mergedData);
         }
-    }
-    
-    unifiedData.sort(function(a, b) {
-        var timeA = new Date(a.start_time);
-        var timeB = new Date(b.start_time);
-        return timeA - timeB;
-    });
-    
-    return unifiedData;
-}
-
-// 데이터 카드 생성
-function createDataCard(dataType, data, fileId) {
-    var key = fileId + '_' + dataType;
-    downloadableData[key] = data;
-    
-    var card = document.createElement('div');
-    card.className = 'file-card';
-    
-    var filename = fileId + '_' + dataType + '.csv';
-    var rowCount = data.length;
-    
-    var columnCount;
-    if (dataType === 'unified') {
-        columnCount = 10; // data_type, source_file, start_time, end_time, value1-6
-    } else {
-        columnCount = OUTPUT_COLUMNS[dataType].length + (fileId === 'merged_all' ? 1 : 0); // source_file 컬럼 포함
-    }
-    
-    var preview = data.slice(0, 3);
-    
-    var tableHtml = '';
-    if (data.length > 0) {
-        tableHtml = '<table><thead><tr>';
         
+        if (mergeMode === 'unified' || mergeMode === 'both') {
+            // Display unified data (all types in one)
+            const unifiedData = DataProcessor.createUnifiedData(allData);
+            
+            if (mergeMode === 'both') {
+                const unifiedSection = document.createElement('div');
+                unifiedSection.innerHTML = `<h3 style="color: var(--gray-700); border-bottom: 2px solid var(--accent-color); padding-bottom: 10px; margin: 20px 0;">🎯 전체 통합 데이터</h3>`;
+                Elements.resultsContainer.appendChild(unifiedSection);
+            }
+            
+            this.createDataCard('unified', unifiedData, 'all_types');
+            
+            // Add unified download button
+            const unifiedDownloadBtn = document.createElement('button');
+            unifiedDownloadBtn.className = 'download-btn';
+            unifiedDownloadBtn.style.background = 'linear-gradient(135deg, var(--accent-color) 0%, var(--accent-dark) 100%)';
+            unifiedDownloadBtn.style.margin = '20px auto';
+            unifiedDownloadBtn.style.display = 'block';
+            unifiedDownloadBtn.innerHTML = `📊 all_types_unified.csv 다운로드 (${Utils.formatNumber(unifiedData.length)}행)`;
+            unifiedDownloadBtn.onclick = () => {
+                AppState.downloadableData['all_types_unified'] = unifiedData;
+                DownloadManager.downloadCSV('unified', unifiedData, 'all_types');
+            };
+            Elements.resultsContainer.appendChild(unifiedDownloadBtn);
+        }
+        
+        Utils.showSection(Elements.resultsSection, true);
+    },
+
+    createDataCard(dataType, data, fileId) {
+        // Store data for download
+        const key = `${fileId}_${dataType}`;
+        AppState.downloadableData[key] = data;
+        
+        const card = document.createElement('div');
+        card.className = 'result-card';
+        
+        const filename = `${fileId}_${dataType}.csv`;
+        const rowCount = data.length;
+        
+        // Calculate column count
+        let columnCount;
         if (dataType === 'unified') {
-            var unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
-            unifiedHeaders.forEach(function(header) {
-                tableHtml += '<th>' + header + '</th>';
+            columnCount = 10; // data_type, source_file, start_time, end_time, value1-6, raw_data
+        } else {
+            columnCount = DATA_CONFIG.OUTPUT_COLUMNS[dataType].length + (fileId === 'merged_all' ? 1 : 0);
+        }
+        
+        // Create preview table
+        const preview = data.slice(0, 3);
+        const tableHtml = this.createPreviewTable(dataType, preview, fileId);
+        
+        // Description for unified data
+        let descriptionHtml = '';
+        if (dataType === 'unified') {
+            const typeCounts = {};
+            data.forEach(row => {
+                typeCounts[row.data_type] = (typeCounts[row.data_type] || 0) + 1;
+            });
+            
+            descriptionHtml = `
+                <div style="background: rgba(52, 152, 219, 0.1); border: 1px solid var(--primary-color); border-radius: var(--border-radius-md); padding: var(--spacing-md); margin: var(--spacing-md) 0;">
+                    <strong>📊 통합 데이터 구성:</strong><br>
+                    ${Object.entries(typeCounts).map(([type, count]) => `• ${type}: ${Utils.formatNumber(count)}행`).join('<br>')}
+                    <br><small style="color: var(--gray-600);">value1-6: 각 데이터 타입별 주요 값들이 매핑됨</small>
+                </div>
+            `;
+        }
+        
+        card.innerHTML = `
+            <h3>📄 ${filename}</h3>
+            ${descriptionHtml}
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value">${Utils.formatNumber(rowCount)}</span>
+                    <span class="stat-label">행 수</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value">${columnCount}</span>
+                    <span class="stat-label">컬럼 수</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value">${(new Blob([Papa.unparse(data)]).size / 1024).toFixed(1)}KB</span>
+                    <span class="stat-label">파일 크기</span>
+                </div>
+            </div>
+            <div class="data-preview">
+                <details>
+                    <summary>📋 데이터 미리보기 (처음 3행)</summary>
+                    <div style="overflow-x: auto; margin-top: var(--spacing-md);">${tableHtml}</div>
+                </details>
+            </div>
+            <button class="download-btn" onclick="DownloadManager.downloadCSVSafe('${dataType}', '${fileId}')">
+                💾 ${filename} 다운로드
+            </button>
+        `;
+        
+        Elements.resultsContainer.appendChild(card);
+    },
+
+    createPreviewTable(dataType, preview, fileId) {
+        if (preview.length === 0) {
+            return '<p style="color: var(--gray-600);">데이터가 없습니다</p>';
+        }
+        
+        let tableHtml = '<table class="data-table"><thead><tr>';
+        
+        // Create headers
+        if (dataType === 'unified') {
+            const unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
+            unifiedHeaders.forEach(header => {
+                tableHtml += `<th>${header}</th>`;
             });
         } else {
-            for (var c = 0; c < OUTPUT_COLUMNS[dataType].length; c++) {
-                tableHtml += '<th>' + OUTPUT_COLUMNS[dataType][c] + '</th>';
-            }
+            DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
+                tableHtml += `<th>${col}</th>`;
+            });
             if (fileId === 'merged_all') {
                 tableHtml += '<th>source_file</th>';
             }
         }
         tableHtml += '</tr></thead><tbody>';
         
-        for (var r = 0; r < preview.length; r++) {
+        // Create data rows
+        preview.forEach(row => {
             tableHtml += '<tr>';
             if (dataType === 'unified') {
-                var unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
-                unifiedHeaders.forEach(function(header) {
-                    tableHtml += '<td>' + (preview[r][header] || '') + '</td>';
+                const unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
+                unifiedHeaders.forEach(header => {
+                    tableHtml += `<td>${row[header] || ''}</td>`;
                 });
             } else {
-                for (var c = 0; c < OUTPUT_COLUMNS[dataType].length; c++) {
-                    var col = OUTPUT_COLUMNS[dataType][c];
-                    tableHtml += '<td>' + (preview[r][col] || '') + '</td>';
-                }
+                DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
+                    tableHtml += `<td>${row[col] || ''}</td>`;
+                });
                 if (fileId === 'merged_all') {
-                    tableHtml += '<td>' + (preview[r].source_file || '') + '</td>';
+                    tableHtml += `<td>${row.source_file || ''}</td>`;
                 }
             }
             tableHtml += '</tr>';
-        }
-        tableHtml += '</tbody></table>';
-    }
-    
-    var descriptionHtml = '';
-    if (dataType === 'unified') {
-        var typeCounts = {};
-        data.forEach(function(row) {
-            typeCounts[row.data_type] = (typeCounts[row.data_type] || 0) + 1;
         });
         
-        descriptionHtml = '<div style="background: #e8f4fd; border: 1px solid #0984e3; border-radius: 5px; padding: 10px; margin: 10px 0;">' +
-            '<strong>📊 통합 데이터 구성:</strong><br>';
-        for (var type in typeCounts) {
-            descriptionHtml += '• ' + type + ': ' + typeCounts[type].toLocaleString() + '행<br>';
-        }
-        descriptionHtml += '<small style="color: #666;">value1-6: 각 데이터 타입별 주요 값들이 매핑됨</small></div>';
-    }
-    
-    card.innerHTML = 
-        '<h3>📄 ' + filename + '</h3>' +
-        descriptionHtml +
-        '<div class="stats">' +
-            '<div class="stat-item"><div class="stat-value">' + rowCount.toLocaleString() + '</div><div>행 수</div></div>' +
-            '<div class="stat-item"><div class="stat-value">' + columnCount + '</div><div>컬럼 수</div></div>' +
-            '<div class="stat-item"><div class="stat-value">' + (new Blob([Papa.unparse(data)]).size / 1024).toFixed(1) + 'KB</div><div>파일 크기</div></div>' +
-        '</div>' +
-        '<details><summary>📋 데이터 미리보기 (처음 3행)</summary>' +
-            '<div style="overflow-x: auto; margin-top: 10px;">' + tableHtml + '</div>' +
-        '</details>' +
-        '<button class="btn download-btn" onclick="downloadCSVSafe(\'' + dataType + '\', \'' + fileId + '\')">' +
-            '💾 ' + filename + ' 다운로드' +
-        '</button>';
-    
-    fileResults.appendChild(card);
-}
+        tableHtml += '</tbody></table>';
+        return tableHtml;
+    },
 
-// 일괄 다운로드 섹션 생성
-function createBulkDownloadSection(mergedData) {
-    downloadSection.style.display = 'block';
-    bulkDownload.innerHTML = '';
-    
-    for (var dataType in mergedData) {
-        var data = mergedData[dataType];
-        var key = 'merged_all_' + dataType;
-        downloadableData[key] = data;
+    createBulkDownloadSection(mergedData) {
+        Utils.showSection(Elements.bulkDownloadSection, true);
+        Elements.bulkDownloadContainer.innerHTML = '';
         
-        var button = document.createElement('button');
-        button.className = 'btn download-btn';
-        button.innerHTML = '💾 merged_all_' + dataType + '.csv (' + data.length.toLocaleString() + '행)';
-        button.onclick = function(dt, k) {
-            return function() { 
-                downloadCSV(dt, downloadableData[k], 'merged_all'); 
+        // Individual download buttons
+        for (const dataType in mergedData) {
+            const data = mergedData[dataType];
+            const key = `merged_all_${dataType}`;
+            AppState.downloadableData[key] = data;
+            
+            const button = document.createElement('button');
+            button.className = 'download-btn';
+            button.innerHTML = `💾 merged_all_${dataType}.csv (${Utils.formatNumber(data.length)}행)`;
+            button.onclick = () => {
+                DownloadManager.downloadCSV(dataType, data, 'merged_all');
             };
-        }(dataType, key);
-        bulkDownload.appendChild(button);
-    }
-    
-    var zipButton = document.createElement('button');
-    zipButton.className = 'btn';
-    zipButton.style.background = 'linear-gradient(45deg, #9b59b6, #8e44ad)';
-    zipButton.innerHTML = '📦 전체 CSV 파일 ZIP으로 다운로드';
-    zipButton.onclick = function() { downloadAllAsZip(mergedData); };
-    bulkDownload.appendChild(zipButton);
-}
-
-// CSV 다운로드 함수 (개선된 버전)
-function downloadCSV(dataType, data, fileId) {
-    try {
-        var filename = fileId + '_' + dataType + '.csv';
-        console.log('다운로드 시작:', filename);
+            Elements.bulkDownloadContainer.appendChild(button);
+        }
         
-        if (!data || data.length === 0) {
-            showStatus('다운로드할 데이터가 없습니다.', 'warning');
+        // ZIP download button
+        const zipButton = document.createElement('button');
+        zipButton.className = 'download-btn';
+        zipButton.style.background = 'linear-gradient(135deg, var(--accent-color) 0%, var(--accent-dark) 100%)';
+        zipButton.innerHTML = '📦 전체 CSV 파일 ZIP으로 다운로드';
+        zipButton.onclick = () => DownloadManager.downloadAllAsZip(mergedData);
+        Elements.bulkDownloadContainer.appendChild(zipButton);
+    }
+};
+
+// Download Management
+const DownloadManager = {
+    downloadCSV(dataType, data, fileId) {
+        try {
+            const filename = `${fileId}_${dataType}.csv`;
+            console.log('다운로드 시작:', filename, '데이터 행 수:', data.length);
+            
+            if (!data || data.length === 0) {
+                Utils.showToast('다운로드할 데이터가 없습니다.', 'warning');
+                return;
+            }
+            
+            // Add BOM for Korean characters
+            const csv = '\uFEFF' + Papa.unparse(data);
+            
+            // Try modern File System Access API first
+            if (window.showSaveFilePicker) {
+                this.downloadWithFilePicker(csv, filename);
+                return;
+            }
+            
+            // Fallback to traditional blob download
+            this.downloadWithBlob(csv, filename);
+            
+        } catch (error) {
+            console.error('다운로드 오류:', error);
+            Utils.showToast(`다운로드 중 오류가 발생했습니다: ${error.message}`, 'error');
+            this.showAlternativeDownload(Papa.unparse(data), filename);
+        }
+    },
+
+    downloadCSVSafe(dataType, fileId) {
+        try {
+            const key = `${fileId}_${dataType}`;
+            const data = AppState.downloadableData[key];
+            
+            if (!data) {
+                console.error('다운로드 데이터를 찾을 수 없습니다:', key);
+                Utils.showToast('다운로드할 데이터를 찾을 수 없습니다.', 'error');
+                return;
+            }
+            
+            this.downloadCSV(dataType, data, fileId);
+        } catch (error) {
+            console.error('다운로드 오류:', error);
+            Utils.showToast('다운로드 중 오류가 발생했습니다.', 'error');
+        }
+    },
+
+    async downloadWithFilePicker(csv, filename) {
+        try {
+            const fileHandle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{
+                    description: 'CSV files',
+                    accept: { 'text/csv': ['.csv'] }
+                }]
+            });
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(csv);
+            await writable.close();
+            
+            Utils.showToast(`파일이 저장되었습니다: ${filename}`, 'info');
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.log('File Picker API 실패, 기본 방법으로 전환');
+                this.downloadWithBlob(csv, filename);
+            }
+        }
+    },
+
+    downloadWithBlob(csv, filename) {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        
+        // IE/Edge support
+        if (navigator.msSaveBlob) {
+            navigator.msSaveBlob(blob, filename);
+            Utils.showToast(`파일이 다운로드되었습니다: ${filename}`, 'info');
             return;
         }
         
-        // CSV 데이터 생성 (BOM 추가로 한글 지원)
-        var csv = '\uFEFF' + Papa.unparse(data);
-        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        // Standard method
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
         
-        // 다운로드 링크 생성
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement('a');
         link.href = url;
         link.download = filename;
         link.style.display = 'none';
@@ -762,232 +934,333 @@ function downloadCSV(dataType, data, fileId) {
         link.click();
         document.body.removeChild(link);
         
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        
-        showStatus('파일 다운로드를 시작했습니다: ' + filename, 'info');
-        
-        // 브라우저에서 다운로드가 차단된 경우를 위한 대안 (3초 후)
         setTimeout(() => {
-            if (document.querySelector('.status.info')) {
-                showAlternativeDownload(csv, filename);
-            }
+            URL.revokeObjectURL(url);
+        }, 1000);
+        
+        Utils.showToast(`파일 다운로드를 시작했습니다: ${filename}`, 'info');
+        
+        // Show alternative after 3 seconds if needed
+        setTimeout(() => {
+            this.showAlternativeButton(csv, filename);
         }, 3000);
-        
-    } catch (error) {
-        console.error('다운로드 오류:', error);
-        showStatus('다운로드 중 오류가 발생했습니다: ' + error.message, 'error');
-        showAlternativeDownload(Papa.unparse(data), filename);
-    }
-}
+    },
 
-// 안전한 CSV 다운로드 함수
-function downloadCSVSafe(dataType, fileId) {
-    try {
-        var key = fileId + '_' + dataType;
-        var data = downloadableData[key];
+    showAlternativeButton(csv, filename) {
+        const alternativeBtn = document.createElement('button');
+        alternativeBtn.className = 'btn btn-secondary';
+        alternativeBtn.style.margin = '10px';
+        alternativeBtn.innerHTML = `🔄 ${filename} 대안 다운로드`;
         
-        if (!data) {
-            console.error('다운로드 데이터를 찾을 수 없습니다:', key);
-            showStatus('다운로드할 데이터를 찾을 수 없습니다.', 'error');
-            return;
+        alternativeBtn.onclick = () => {
+            this.showAlternativeDownload(csv, filename);
+            alternativeBtn.remove();
+        };
+        
+        Elements.statusSection.appendChild(alternativeBtn);
+        
+        // Auto remove after 30 seconds
+        setTimeout(() => {
+            if (alternativeBtn.parentElement) {
+                alternativeBtn.remove();
+            }
+        }, 30000);
+    },
+
+    showAlternativeDownload(csv, filename) {
+        const modalContent = `
+            <h4>📄 ${filename} 데이터</h4>
+            <p>아래 텍스트를 모두 선택(Ctrl+A)하여 복사하고, 메모장에 붙여넣어 .csv 확장자로 저장하세요.</p>
+            <textarea style="width: 100%; height: 300px; font-family: monospace; margin: 10px 0;" readonly>${csv}</textarea>
+            <div style="text-align: center; margin-top: 15px;">
+                <button class="btn btn-primary" onclick="this.copyToClipboard('${csv.replace(/'/g, "\\'")}')">
+                    📋 클립보드에 복사
+                </button>
+                <button class="btn btn-secondary" onclick="closeModal()" style="margin-left: 10px;">
+                    닫기
+                </button>
+            </div>
+        `;
+        
+        showModal('대안 다운로드', modalContent);
+    },
+
+    async downloadAllAsZip(mergedData) {
+        try {
+            Utils.showToast('ZIP 파일을 생성하고 있습니다...', 'info');
+            
+            const zip = new JSZip();
+            
+            for (const dataType in mergedData) {
+                const data = mergedData[dataType];
+                const csv = Papa.unparse(data);
+                const filename = `merged_all_${dataType}.csv`;
+                zip.file(filename, '\uFEFF' + csv);
+            }
+            
+            // Add README
+            const readme = this.createReadme(mergedData);
+            zip.file('README.md', readme);
+            
+            const content = await zip.generateAsync({ type: 'blob' });
+            
+            const filename = `samsung_health_merged_${new Date().toISOString().slice(0, 10)}.zip`;
+            this.downloadWithBlob(content, filename);
+            
+            Utils.showToast('ZIP 파일 다운로드가 시작되었습니다!', 'info');
+            
+        } catch (error) {
+            console.error('ZIP 생성 오류:', error);
+            Utils.showToast(`ZIP 파일 생성 중 오류가 발생했습니다: ${error.message}`, 'error');
+        }
+    },
+
+    createReadme(mergedData) {
+        let readme = `# Samsung Health 병합 데이터\n\n`;
+        readme += `생성일: ${new Date().toLocaleString('ko-KR')}\n`;
+        readme += `처리된 파일 수: ${AppState.selectedFiles.length || Object.keys(AppState.allProcessedData).length}\n`;
+        readme += `포함된 데이터 타입:\n`;
+        
+        for (const dataType in mergedData) {
+            readme += `- ${dataType}: ${Utils.formatNumber(mergedData[dataType].length)}행\n`;
         }
         
-        downloadCSV(dataType, data, fileId);
-    } catch (error) {
-        console.error('다운로드 오류:', error);
-        showStatus('다운로드 중 오류가 발생했습니다.', 'error');
-    }
-}
-
-// 대안 다운로드 방법
-function showAlternativeDownload(csv, filename) {
-    var modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.8); z-index: 10000; display: flex;
-        align-items: center; justify-content: center;
-    `;
-    
-    var content = document.createElement('div');
-    content.style.cssText = `
-        background: white; padding: 30px; border-radius: 15px;
-        max-width: 90%; max-height: 80%; overflow: auto;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    `;
-    
-    content.innerHTML = `
-        <h3 style="color: #2c3e50; margin-bottom: 15px;">📄 ${filename} 데이터</h3>
-        <p style="color: #666; margin-bottom: 15px;">다운로드가 차단된 경우, 아래 방법을 이용하세요:</p>
-        <div style="margin: 20px 0;">
-            <button onclick="copyToClipboard(\`${csv.replace(/`/g, '\\`')}\`); showStatus('클립보드에 복사되었습니다!', 'info'); this.parentElement.parentElement.parentElement.remove();" 
-                    style="padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 8px; margin-right: 10px; cursor: pointer;">
-                📋 클립보드에 복사
-            </button>
-            <button onclick="downloadAsDataURL(\`${csv.replace(/`/g, '\\`')}\`, '${filename}'); this.parentElement.parentElement.parentElement.remove();" 
-                    style="padding: 12px 20px; background: #3498db; color: white; border: none; border-radius: 8px; margin-right: 10px; cursor: pointer;">
-                💾 강제 다운로드
-            </button>
-            <button onclick="this.parentElement.parentElement.parentElement.remove()" 
-                    style="padding: 12px 20px; background: #95a5a6; color: white; border: none; border-radius: 8px; cursor: pointer;">
-                ❌ 닫기
-            </button>
-        </div>
-        <details>
-            <summary style="cursor: pointer; color: #666;">📝 수동 복사 (클릭하여 펼치기)</summary>
-            <textarea readonly style="width: 100%; height: 200px; margin-top: 10px; font-family: monospace; font-size: 12px; border: 2px solid #dee2e6; border-radius: 5px; padding: 10px;">${csv.slice(0, 2000)}${csv.length > 2000 ? '...(전체 데이터는 클립보드 복사 사용)' : ''}</textarea>
-        </details>
-    `;
-    
-    modal.appendChild(content);
-    document.body.appendChild(modal);
-    
-    modal.onclick = function(e) {
-        if (e.target === modal) {
-            modal.remove();
-        }
-    };
-}
-
-// 클립보드 복사 함수
-function copyToClipboard(text) {
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(() => {
-            console.log('클립보드에 복사됨');
-        }).catch(() => {
-            fallbackCopyToClipboard(text);
-        });
-    } else {
-        fallbackCopyToClipboard(text);
-    }
-}
-
-function fallbackCopyToClipboard(text) {
-    var textArea = document.createElement('textarea');
-    textArea.value = text;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-999999px';
-    textArea.style.top = '-999999px';
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    
-    try {
-        document.execCommand('copy');
-        console.log('클립보드에 복사됨 (fallback)');
-    } catch (err) {
-        console.error('클립보드 복사 실패:', err);
-    }
-    
-    document.body.removeChild(textArea);
-}
-
-// 데이터 URL 다운로드
-function downloadAsDataURL(csv, filename) {
-    var dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-    var link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = filename;
-    link.click();
-}
-
-// 전체 ZIP 다운로드 함수
-async function downloadAllAsZip(mergedData) {
-    try {
-        showStatus('ZIP 파일을 생성하고 있습니다...', 'info');
-        
-        var zip = new JSZip();
-        
-        for (var dataType in mergedData) {
-            var data = mergedData[dataType];
-            var csv = '\uFEFF' + Papa.unparse(data);
-            var filename = 'merged_all_' + dataType + '.csv';
-            zip.file(filename, csv);
-        }
-        
-        // README 파일 추가
-        var readme = '# Samsung Health 병합 데이터\n\n' +
-                   '생성일: ' + new Date().toLocaleString('ko-KR') + '\n' +
-                   '처리된 파일 수: ' + Object.keys(allProcessedData).length + '\n' +
-                   '포함된 데이터 타입:\n';
-        
-        for (var dataType in mergedData) {
-            readme += '- ' + dataType + ': ' + mergedData[dataType].length.toLocaleString() + '행\n';
-        }
-        
-        readme += '\n## 컬럼 설명\n';
-        for (var dataType in OUTPUT_COLUMNS) {
+        readme += `\n## 컬럼 설명\n`;
+        for (const dataType in DATA_CONFIG.OUTPUT_COLUMNS) {
             if (mergedData[dataType]) {
-                readme += '\n### ' + dataType + '\n';
-                for (var i = 0; i < OUTPUT_COLUMNS[dataType].length; i++) {
-                    readme += '- ' + OUTPUT_COLUMNS[dataType][i] + '\n';
-                }
-                readme += '- source_file: 원본 파일 식별자\n';
+                readme += `\n### ${dataType}\n`;
+                DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
+                    readme += `- ${col}\n`;
+                });
+                readme += `- source_file: 원본 파일 식별자\n`;
             }
         }
         
-        zip.file('README.md', readme);
+        return readme;
+    }
+};
+
+// Processing Functions
+async function processMultipleFiles() {
+    if (AppState.selectedFiles.length === 0) {
+        Utils.showToast('처리할 파일을 선택해주세요.', 'warning');
+        return;
+    }
+
+    Utils.showSection(Elements.progressSection, true);
+    Utils.updateProgress(0, '여러 ZIP 파일을 처리하고 있습니다...');
+
+    try {
+        AppState.allProcessedData = {};
         
-        var content = await zip.generateAsync({type: 'blob'});
+        for (let i = 0; i < AppState.selectedFiles.length; i++) {
+            const file = AppState.selectedFiles[i];
+            const fileId = Utils.getFileIdentifier(file.name);
+            
+            Utils.updateProgress((i / AppState.selectedFiles.length) * 80, `${file.name} 처리 중... (${i + 1}/${AppState.selectedFiles.length})`);
+            
+            const data = await DataProcessor.processZipFile(file, fileId);
+            AppState.allProcessedData[fileId] = data;
+        }
+
+        Utils.updateProgress(90, '결과 생성 중...');
         
-        var link = document.createElement('a');
-        link.href = URL.createObjectURL(content);
-        link.download = 'samsung_health_merged_' + new Date().toISOString().slice(0,10) + '.zip';
-        link.click();
+        const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
+        ResultsManager.displayMultiResults(AppState.allProcessedData, mergeMode);
         
-        showStatus('ZIP 파일 다운로드가 시작되었습니다!', 'info');
-        
+        Utils.updateProgress(100, '완료!');
+        Utils.showToast(`${AppState.selectedFiles.length}개 파일 처리가 완료되었습니다!`, 'info');
+
     } catch (error) {
-        console.error('ZIP 생성 오류:', error);
-        showStatus('ZIP 파일 생성 중 오류가 발생했습니다: ' + error.message, 'error');
+        console.error('다중 파일 처리 오류:', error);
+        Utils.showToast(`파일 처리 중 오류가 발생했습니다: ${error.message}`, 'error');
+    } finally {
+        setTimeout(() => {
+            Utils.showSection(Elements.progressSection, false);
+        }, 2000);
     }
 }
 
-// 페이지 로드 시 초기화
-document.addEventListener('DOMContentLoaded', function() {
-    // 초기 모드 설정
-    setSingleMode();
-    
-    // 드래그 앤 드롭 설정
-    document.addEventListener('dragover', function(e) {
-        e.preventDefault();
-    });
+async function processNestedFiles() {
+    if (AppState.nestedZipFiles.length === 0 || !AppState.currentNestedZip) {
+        Utils.showToast('처리할 내부 ZIP 파일이 없습니다.', 'warning');
+        return;
+    }
 
-    document.addEventListener('drop', function(e) {
-        e.preventDefault();
+    Utils.showSection(Elements.progressSection, true);
+    Utils.updateProgress(0, '내부 ZIP 파일들을 처리하고 있습니다...');
+
+    try {
+        AppState.allProcessedData = {};
         
-        var uploadArea = e.target.closest('.upload-area');
-        if (!uploadArea) return;
-        
-        var files = e.dataTransfer.files;
-        
-        if (currentMode === 'single' && e.target.closest('#singleMode')) {
-            if (files.length > 0) {
-                handleSingleFile(files[0]);
-            }
-        } else if (currentMode === 'multi' && e.target.closest('#multiMode')) {
-            for (var i = 0; i < files.length; i++) {
-                addFile(files[i]);
-            }
-            updateFileList();
-        } else if (currentMode === 'nested' && e.target.closest('#nestedMode')) {
-            if (files.length > 0) {
-                handleNestedFile(files[0]);
-            }
+        for (let i = 0; i < AppState.nestedZipFiles.length; i++) {
+            const fileInfo = AppState.nestedZipFiles[i];
+            
+            Utils.updateProgress((i / AppState.nestedZipFiles.length) * 80, `${fileInfo.filename} 처리 중... (${i + 1}/${AppState.nestedZipFiles.length})`);
+            
+            // Extract inner ZIP file as Blob
+            const innerZipBlob = await AppState.currentNestedZip.files[fileInfo.filename].async('blob');
+            const innerZipFile = new File([innerZipBlob], fileInfo.filename, { type: 'application/zip' });
+            
+            const data = await DataProcessor.processZipFile(innerZipFile, fileInfo.fileId);
+            AppState.allProcessedData[fileInfo.fileId] = data;
         }
+
+        Utils.updateProgress(90, '결과 생성 중...');
+        
+        const mergeMode = document.querySelector('input[name="mergeMode"]:checked').value;
+        ResultsManager.displayMultiResults(AppState.allProcessedData, mergeMode);
+        
+        Utils.updateProgress(100, '완료!');
+        Utils.showToast(`${AppState.nestedZipFiles.length}개 내부 파일 처리가 완료되었습니다!`, 'info');
+
+    } catch (error) {
+        console.error('중첩 파일 처리 오류:', error);
+        Utils.showToast(`파일 처리 중 오류가 발생했습니다: ${error.message}`, 'error');
+    } finally {
+        setTimeout(() => {
+            Utils.showSection(Elements.progressSection, false);
+        }, 2000);
+    }
+}
+
+// Global Functions
+function showModeSelection() {
+    Utils.showSection(Elements.uploadSection, false);
+    Utils.showSection(Elements.resultsSection, false);
+    Utils.showSection(Elements.progressSection, false);
+    Utils.showSection(Elements.modeSelection, true);
+    
+    // Clear mode selection
+    document.querySelectorAll('.mode-card').forEach(card => {
+        card.classList.remove('active');
     });
     
-    // 드래그 오버 효과
-    document.addEventListener('dragenter', function(e) {
-        var uploadArea = e.target.closest('.upload-area');
-        if (uploadArea) {
-            uploadArea.classList.add('dragover');
-        }
+    AppState.currentMode = null;
+    ModeManager.clearResults();
+}
+
+function clearFiles() {
+    AppState.selectedFiles = [];
+    FileManager.updateFileList();
+    Utils.showToast('파일 목록이 초기화되었습니다.', 'info');
+}
+
+function clearNestedFiles() {
+    AppState.nestedZipFiles = [];
+    AppState.currentNestedZip = null;
+    Utils.showSection(Elements.nestedFileStructure, false);
+    Elements.nestedFileInput.value = '';
+    Utils.showToast('중첩 파일 선택이 초기화되었습니다.', 'info');
+}
+
+function showModal(title, body) {
+    Elements.modalTitle.textContent = title;
+    Elements.modalBody.innerHTML = body;
+    Utils.showSection(Elements.modal, true);
+}
+
+function closeModal() {
+    Utils.showSection(Elements.modal, false);
+}
+
+function showGuide() {
+    const guideContent = `
+        <h4>🎯 사용 가이드</h4>
+        <div style="line-height: 1.6;">
+            <h5>1. 모드 선택</h5>
+            <ul>
+                <li><strong>단일 ZIP 파일:</strong> 하나의 Samsung Health ZIP 파일 처리</li>
+                <li><strong>다중 ZIP 파일:</strong> 여러 ZIP 파일을 한번에 처리하여 병합</li>
+                <li><strong>중첩 ZIP 파일:</strong> ZIP 안에 여러 ZIP이 들어있는 파일 처리</li>
+            </ul>
+            
+            <h5>2. 파일 업로드</h5>
+            <ul>
+                <li>드래그 앤 드롭 또는 클릭하여 파일 선택</li>
+                <li>ZIP 파일만 지원 (최대 100MB)</li>
+                <li>Samsung Health 데이터 형식 필요</li>
+            </ul>
+            
+            <h5>3. 처리 옵션 선택</h5>
+            <ul>
+                <li><strong>파일별 분리:</strong> 각 파일의 데이터를 개별 처리</li>
+                <li><strong>타입별 병합:</strong> 같은 데이터 타입끼리 병합 (4개 CSV)</li>
+                <li><strong>전체 통합:</strong> 모든 데이터를 하나의 CSV로 통합</li>
+                <li><strong>모두 제공:</strong> 위의 모든 옵션 결과 제공</li>
+            </ul>
+            
+            <h5>4. 결과 다운로드</h5>
+            <ul>
+                <li>개별 CSV 파일 다운로드</li>
+                <li>ZIP 파일로 일괄 다운로드</li>
+                <li>다운로드가 안 될 경우 대안 다운로드 사용</li>
+            </ul>
+        </div>
+    `;
+    showModal('사용 가이드', guideContent);
+}
+
+function showAbout() {
+    const aboutContent = `
+        <h4>ℹ️ 프로그램 정보</h4>
+        <div style="line-height: 1.6;">
+            <p><strong>Samsung Health 데이터 처리기</strong>는 Samsung Health 앱에서 내보낸 ZIP 파일을 분석하여 CSV 형태로 변환하는 무료 웹 도구입니다.</p>
+            
+            <h5>🔒 개인정보 보호</h5>
+            <ul>
+                <li>모든 데이터 처리는 브라우저에서만 이루어집니다</li>
+                <li>서버에 데이터가 전송되거나 저장되지 않습니다</li>
+                <li>완전히 오프라인에서 작동합니다</li>
+            </ul>
+            
+            <h5>📊 지원 데이터 타입</h5>
+            <ul>
+                <li><strong>심박수:</strong> 시간별 심박수 측정 데이터</li>
+                <li><strong>스트레스:</strong> 스트레스 수준 측정 데이터</li>
+                <li><strong>걸음수:</strong> 일일 걸음수 및 칼로리 데이터</li>
+                <li><strong>수면:</strong> 수면 시간, 효율성, 수면 단계 데이터</li>
+            </ul>
+            
+            <h5>💻 기술 스택</h5>
+            <ul>
+                <li>JavaScript (ES6+)</li>
+                <li>Papa Parse (CSV 처리)</li>
+                <li>JSZip (ZIP 파일 처리)</li>
+                <li>HTML5 & CSS3</li>
+            </ul>
+            
+            <h5>🆔 버전 정보</h5>
+            <p>Version 2.0.0 - UX Friendly Edition</p>
+            <p>© 2025 Samsung Health 데이터 처리기</p>
+        </div>
+    `;
+    showModal('프로그램 정보', aboutContent);
+}
+
+// Copy to clipboard helper
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        Utils.showToast('클립보드에 복사되었습니다!', 'info');
+    }).catch(() => {
+        Utils.showToast('클립보드 복사에 실패했습니다.', 'error');
+    });
+}
+
+// Initialize Application
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Samsung Health 데이터 처리기 초기화 중...');
+    
+    // Initialize all managers
+    ModeManager.init();
+    FileManager.init();
+    
+    // Set up global error handling
+    window.addEventListener('error', (event) => {
+        console.error('전역 오류:', event.error);
+        Utils.showToast('예상치 못한 오류가 발생했습니다.', 'error');
     });
     
-    document.addEventListener('dragleave', function(e) {
-        var uploadArea = e.target.closest('.upload-area');
-        if (uploadArea && !uploadArea.contains(e.relatedTarget)) {
-            uploadArea.classList.remove('dragover');
-        }
-    });
+    console.log('Samsung Health 데이터 처리기가 준비되었습니다!');
+    Utils.showToast('Samsung Health 데이터 처리기에 오신 것을 환영합니다!', 'info');
 });
