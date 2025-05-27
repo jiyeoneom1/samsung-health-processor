@@ -1,9 +1,4 @@
-console.log(`📂 Processing ${filename}:`);
-                        console.log(`📊 Parsed columns:`, parsed.meta.fields);
-                        console.log(`📈 Total rows:`, parsed.data.length);
-                        if (parsed.data.length > 0) {
-                            console.log(`🔍 First row sample:`, parsed.data[0]);
-                        }// Samsung Health Data Processor
+// Samsung Health Data Processor
 // UX-Friendly JavaScript Implementation
 
 // Global State Management
@@ -171,117 +166,7 @@ const Utils = {
     // Format number with commas
     formatNumber(num) {
         return num.toLocaleString();
-    },
-
-    // Sort data by timestamp with robust parsing
-    sortByTime(data) {
-        return data.sort((a, b) => {
-            const timeA = this.parseTimestamp(a.start_time);
-            const timeB = this.parseTimestamp(b.start_time);
-            return timeA - timeB;
-        });
-    },
-
-    // Debug function to check timestamp values
-    debugTimestamp(timestamp, label = '') {
-        console.log(`🕐 Debug ${label}:`, {
-            original: timestamp,
-            type: typeof timestamp,
-            asNumber: parseInt(timestamp),
-            asDate: new Date(parseInt(timestamp)),
-            formatted: this.formatTimestamp(timestamp)
-        });
-    },
-
-    // Format timestamp to readable date
-    formatTimestamp(timestamp) {
-        if (!timestamp) return '';
-        
-        // Debug log for troubleshooting
-        this.debugTimestamp(timestamp, 'formatTimestamp');
-        
-        // Handle different timestamp formats
-        let date;
-        
-        if (typeof timestamp === 'number') {
-            // Unix timestamp in milliseconds
-            date = new Date(timestamp);
-        } else if (typeof timestamp === 'string') {
-            if (/^\d+$/.test(timestamp)) {
-                // Numeric string - try different interpretations
-                const num = parseInt(timestamp);
-                
-                // Test different timestamp formats
-                console.log('🔍 Testing timestamp formats:', {
-                    original: num,
-                    'as_milliseconds': new Date(num),
-                    'as_seconds': new Date(num * 1000),
-                    'current_year': new Date().getFullYear()
-                });
-                
-                // Check which format gives a reasonable year (2020-2030)
-                const asMs = new Date(num);
-                const asSec = new Date(num * 1000);
-                
-                if (asMs.getFullYear() >= 2020 && asMs.getFullYear() <= 2030) {
-                    date = asMs;
-                } else if (asSec.getFullYear() >= 2020 && asSec.getFullYear() <= 2030) {
-                    date = asSec;
-                } else {
-                    // Default to milliseconds
-                    date = asMs;
-                }
-            } else {
-                // Try parsing as date string
-                date = new Date(timestamp);
-            }
-        } else {
-            return timestamp;
-        }
-        
-        // Check if date is valid
-        if (isNaN(date.getTime())) {
-            return timestamp; // Return original if can't parse
-        }
-        
-        console.log('✅ Final parsed date:', date);
-        
-        // Format like Samsung Health: 2025-02-04 1:00:00 AM
-        return date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: 'numeric',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-        }).replace(/(\d+)\/(\d+)\/(\d+),/, '$3-$1-$2');
-    },
-
-    // Parse timestamp to Date object for sorting
-    parseTimestamp(timestamp) {
-        if (!timestamp) return new Date(0);
-        
-        let date;
-        
-        if (typeof timestamp === 'number') {
-            // Unix timestamp in milliseconds
-            date = new Date(timestamp);
-        } else if (typeof timestamp === 'string') {
-            if (/^\d+$/.test(timestamp)) {
-                // Numeric string - treat as milliseconds
-                const num = parseInt(timestamp);
-                date = new Date(num);
-            } else {
-                // Try parsing as date string
-                date = new Date(timestamp);
-            }
-        } else {
-            date = new Date(timestamp);
-        }
-        
-        return isNaN(date.getTime()) ? new Date(0) : date;
-    },
+    }
 };
 
 // Mode Management
@@ -645,8 +530,12 @@ const DataProcessor = {
                 allRows = allRows.concat(filteredRows);
             }
             
-            // Sort by time with robust parsing
-            allRows = Utils.sortByTime(allRows);
+            // Sort by time
+            allRows.sort((a, b) => {
+                const timeA = new Date(a.start_time);
+                const timeB = new Date(b.start_time);
+                return timeA - timeB;
+            });
             
             processedData[dataType] = {
                 data: allRows,
@@ -671,9 +560,13 @@ const DataProcessor = {
             }
         }
         
-        // Sort each type by time with robust parsing
+        // Sort each type by time
         for (const dataType in merged) {
-            merged[dataType] = Utils.sortByTime(merged[dataType]);
+            merged[dataType].sort((a, b) => {
+                const timeA = new Date(a.start_time);
+                const timeB = new Date(b.start_time);
+                return timeA - timeB;
+            });
         }
         
         return merged;
@@ -707,8 +600,14 @@ const DataProcessor = {
             }
         }
         
-        // Sort by time with robust parsing
-        return Utils.sortByTime(unifiedData);
+        // Sort by time
+        unifiedData.sort((a, b) => {
+            const timeA = new Date(a.start_time);
+            const timeB = new Date(b.start_time);
+            return timeA - timeB;
+        });
+        
+        return unifiedData;
     }
 };
 
@@ -889,27 +788,17 @@ const ResultsManager = {
         }
         tableHtml += '</tr></thead><tbody>';
         
-        // Create data rows with formatted timestamps
+        // Create data rows
         preview.forEach(row => {
             tableHtml += '<tr>';
             if (dataType === 'unified') {
                 const unifiedHeaders = ['data_type', 'source_file', 'start_time', 'end_time', 'value1', 'value2', 'value3', 'value4', 'value5', 'value6'];
                 unifiedHeaders.forEach(header => {
-                    let value = row[header] || '';
-                    // Format timestamps for better readability
-                    if ((header === 'start_time' || header === 'end_time') && value) {
-                        value = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
-                    }
-                    tableHtml += `<td>${value}</td>`;
+                    tableHtml += `<td>${row[header] || ''}</td>`;
                 });
             } else {
                 DATA_CONFIG.OUTPUT_COLUMNS[dataType].forEach(col => {
-                    let value = row[col] || '';
-                    // Format timestamps for better readability
-                    if ((col === 'start_time' || col === 'end_time') && value) {
-                        value = Utils.formatTimestamp ? Utils.formatTimestamp(value) : value;
-                    }
-                    tableHtml += `<td>${value}</td>`;
+                    tableHtml += `<td>${row[col] || ''}</td>`;
                 });
                 if (fileId === 'merged_all') {
                     tableHtml += `<td>${row.source_file || ''}</td>`;
